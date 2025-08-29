@@ -11,6 +11,15 @@ import pty
 import asyncio
 import logging
 
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),  # Console output
+        logging.FileHandler('terminal_security.log', mode='a')  # File output
+    ]
+)
+
 logger = logging.getLogger(__name__)
 
 def build_firejail_cmd(work_dir, argv):
