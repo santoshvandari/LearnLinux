@@ -18,7 +18,7 @@ const useWebSocket = (url, sessionId) => {
     setConnectionStatus('connecting');
     
     try {
-      const wsUrl = sessionId ? `${url}?session_id=${sessionId}` : url;
+      const wsUrl = sessionId ? `${url}?session=${sessionId}` : url;
       wsRef.current = new WebSocket(wsUrl);
 
       wsRef.current.onopen = () => {

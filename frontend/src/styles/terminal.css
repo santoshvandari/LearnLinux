@@ -32,6 +32,10 @@
 .terminal-line {
   @apply whitespace-pre-wrap break-words;
   min-height: 1.2em;
+  font-family: 'Courier New', 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  line-height: 1.2;
+  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 .terminal-prompt {
