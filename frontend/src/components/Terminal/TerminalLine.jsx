@@ -46,11 +46,10 @@ const TerminalLine = memo(({
     return segments.map((segment, index) => {
       const cssClasses = ansiToCSS(segment);
       
-      // Preserve whitespace and line breaks
+      // Preserve original text formatting
       const text = segment.text || '';
-      const preservedText = text
-        .replace(/ /g, '\u00A0') // Convert spaces to non-breaking spaces
-        .replace(/\t/g, '\u00A0\u00A0\u00A0\u00A0'); // Convert tabs to 4 non-breaking spaces
+      // Don't modify the text - render it exactly as received
+      const preservedText = text;
       
       return (
         <span 
