@@ -1,0 +1,182 @@
+/* Terminal-specific styles with monospace font and dark theme */
+
+.terminal-container {
+  @apply w-full h-screen bg-black text-green-400 font-mono text-sm overflow-hidden;
+  font-family: 'Courier New', 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  line-height: 1.2;
+}
+
+.terminal-output {
+  @apply w-full h-full overflow-y-auto p-2;
+  scrollbar-width: thin;
+  scrollbar-color: #333 #000;
+}
+
+.terminal-output::-webkit-scrollbar {
+  width: 8px;
+}
+
+.terminal-output::-webkit-scrollbar-track {
+  background: #000;
+}
+
+.terminal-output::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 4px;
+}
+
+.terminal-output::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+.terminal-line {
+  @apply whitespace-pre-wrap break-words;
+  min-height: 1.2em;
+}
+
+.terminal-prompt {
+  @apply text-green-400;
+}
+
+.terminal-input {
+  @apply bg-transparent border-none outline-none text-green-400 font-mono;
+  caret-color: transparent; /* Hide default caret, we'll use custom cursor */
+}
+
+.terminal-cursor {
+  @apply bg-green-400 text-black inline-block;
+  width: 0.6em;
+  height: 1.2em;
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  0%, 50% {
+    opacity: 1;
+  }
+  51%, 100% {
+    opacity: 0;
+  }
+}
+
+.terminal-cursor.solid {
+  animation: none;
+  opacity: 1;
+}
+
+/* Text selection styles */
+.terminal-container ::selection {
+  background: rgba(255, 255, 255, 0.2);
+  color: inherit;
+}
+
+.terminal-container ::-moz-selection {
+  background: rgba(255, 255, 255, 0.2);
+  color: inherit;
+}
+
+/* ANSI color classes */
+.ansi-black { color: #000000; }
+.ansi-red { color: #ff0000; }
+.ansi-green { color: #00ff00; }
+.ansi-yellow { color: #ffff00; }
+.ansi-blue { color: #0000ff; }
+.ansi-magenta { color: #ff00ff; }
+.ansi-cyan { color: #00ffff; }
+.ansi-white { color: #ffffff; }
+.ansi-bright-black { color: #808080; }
+.ansi-bright-red { color: #ff8080; }
+.ansi-bright-green { color: #80ff80; }
+.ansi-bright-yellow { color: #ffff80; }
+.ansi-bright-blue { color: #8080ff; }
+.ansi-bright-magenta { color: #ff80ff; }
+.ansi-bright-cyan { color: #80ffff; }
+.ansi-bright-white { color: #ffffff; }
+
+/* ANSI background color classes */
+.ansi-bg-black { background-color: #000000; }
+.ansi-bg-red { background-color: #ff0000; }
+.ansi-bg-green { background-color: #00ff00; }
+.ansi-bg-yellow { background-color: #ffff00; }
+.ansi-bg-blue { background-color: #0000ff; }
+.ansi-bg-magenta { background-color: #ff00ff; }
+.ansi-bg-cyan { background-color: #00ffff; }
+.ansi-bg-white { background-color: #ffffff; }
+
+/* ANSI formatting classes */
+.ansi-bold { font-weight: bold; }
+.ansi-italic { font-style: italic; }
+.ansi-underline { text-decoration: underline; }
+.ansi-dim { opacity: 0.7; }
+
+/* Connection status indicator */
+.connection-status {
+  @apply absolute top-2 right-2 px-2 py-1 rounded text-xs;
+}
+
+.connection-status.connected {
+  @apply bg-green-900 text-green-400;
+}
+
+.connection-status.connecting {
+  @apply bg-yellow-900 text-yellow-400;
+}
+
+.connection-status.disconnected {
+  @apply bg-red-900 text-red-400;
+}
+
+.connection-status.error {
+  @apply bg-red-900 text-red-400;
+}
+
+/* Error boundary styles */
+.error-boundary {
+  @apply flex flex-col items-center justify-center h-full bg-red-900 text-red-100 p-8;
+}
+
+.error-boundary h2 {
+  @apply text-xl mb-4;
+}
+
+.error-boundary button {
+  @apply bg-red-700 hover:bg-red-600 text-white px-4 py-2 rounded transition-colors;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .terminal-container {
+    @apply text-xs;
+  }
+  
+  .terminal-output {
+    @apply p-1;
+  }
+  
+  .connection-status {
+    @apply top-1 right-1 px-1 py-0.5 text-xs;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .terminal-container {
+    @apply bg-black text-white;
+  }
+  
+  .terminal-cursor {
+    @apply bg-white text-black;
+  }
+  
+  .terminal-prompt {
+    @apply text-white;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .terminal-cursor {
+    animation: none;
+    opacity: 1;
+  }
+}
