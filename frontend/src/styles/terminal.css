@@ -108,6 +108,12 @@
 .ansi-italic { font-style: italic; }
 .ansi-underline { text-decoration: underline; }
 .ansi-dim { opacity: 0.7; }
+.ansi-reverse { 
+  filter: invert(1);
+}
+.ansi-strikethrough { 
+  text-decoration: line-through; 
+}
 
 /* Connection status indicator */
 .connection-status {
