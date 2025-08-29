@@ -1,12 +1,98 @@
-# React + Vite
+# Learn Linux - Interactive Terminal Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A modern, interactive web-based Linux terminal for learning command-line skills.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+### 🎨 Awesome UI Design
+- **Landing Page**: Beautiful gradient background with animated particles and typing effects
+- **Interactive Terminal**: Real terminal experience with proper ANSI color support
+- **Responsive Design**: Works on desktop and mobile devices
+- **Modern Animations**: Smooth transitions and hover effects
 
-## Expanding the ESLint configuration
+### 🖥️ Terminal Features
+- **Real-time Command Execution**: Execute actual Linux commands
+- **ANSI Color Support**: Full support for terminal colors and formatting
+- **Command History**: Navigate through previous commands with arrow keys
+- **Text Selection**: Copy terminal output
+- **Resizable Interface**: Minimize, maximize, and close terminal window
+- **Connection Status**: Visual indicators for WebSocket connection
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+### 🚀 Getting Started
+
+1. Install dependencies:
+```bash
+npm install
+```
+
+2. Start development server:
+```bash
+npm run dev
+```
+
+3. Open your browser and navigate to the local server URL
+
+### 🎯 How to Use
+
+1. **Landing Page**: Click "Start Learning" to open the terminal
+2. **Terminal Interface**: 
+   - Type Linux commands and press Enter
+   - Use arrow keys to navigate command history
+   - Use Ctrl+C to interrupt running commands
+   - Use Ctrl+L to clear the screen
+   - Click window controls to minimize/maximize/close
+
+### 🛠️ Technical Stack
+
+- **React 19**: Modern React with hooks
+- **Vite**: Fast build tool and dev server
+- **Tailwind CSS**: Utility-first CSS framework
+- **Heroicons**: Beautiful SVG icons
+- **WebSocket**: Real-time communication with backend
+
+### 📁 Project Structure
+
+```
+src/
+├── components/
+│   ├── Landing/
+│   │   └── LandingPage.jsx      # Main landing page
+│   ├── Terminal/
+│   │   ├── Terminal.jsx         # Core terminal component
+│   │   ├── TerminalContainer.jsx # Terminal window wrapper
+│   │   ├── TerminalOutput.jsx   # Output display
+│   │   ├── TerminalLine.jsx     # Individual line rendering
+│   │   └── TerminalCursor.jsx   # Cursor component
+│   ├── UI/
+│   │   └── ErrorBoundary.jsx    # Error handling
+│   └── Icons/
+│       └── SimpleIcons.jsx      # Fallback icons
+├── hooks/
+│   ├── useWebSocket.js          # WebSocket connection
+│   ├── useTerminalState.js      # Terminal state management
+│   ├── useCommandHistory.js     # Command history
+│   └── useKeyboardHandler.js    # Keyboard input handling
+├── utils/
+│   ├── ansiParser.js           # ANSI escape sequence parsing
+│   ├── constants.js            # App constants
+│   └── terminalUtils.js        # Terminal utilities
+└── styles/
+    └── terminal.css            # Terminal-specific styles
+```
+
+### 🎨 Design Features
+
+- **Gradient Backgrounds**: Beautiful color gradients
+- **Particle Effects**: Animated background elements
+- **Typing Animation**: Realistic typing effect on landing page
+- **Glassmorphism**: Modern glass-like UI elements
+- **Dark Theme**: Easy on the eyes terminal interface
+- **Smooth Animations**: CSS transitions and transforms
+
+### 🔧 Customization
+
+The UI is highly customizable through:
+- **Tailwind CSS**: Modify colors, spacing, and layout
+- **CSS Variables**: Easy theme customization
+- **Component Props**: Configurable terminal behavior
+- **ANSI Colors**: Full terminal color palette support
