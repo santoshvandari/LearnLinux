@@ -1,0 +1,84 @@
+db.sqlite3
+__pycache__
+# .dockerignore - Exclude unnecessary files from Docker build
+
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.pytest_cache/
+
+# Django
+*.log
+local_settings.py
+db.sqlite3
+media/
+staticfiles/
+
+# Environment and secrets
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+secrets/
+
+# Docker
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Documentation
+README.md
+docs/
+*.md
+
+# Testing
+.coverage
+.pytest_cache
+htmlcov/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Logs
+logs/
+*.log
+
+# Node modules (if any)
+node_modules/
+npm-debug.log*
+
+# Backup files
+*.bak
+*.backup

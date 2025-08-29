@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  learn-linux:
+    build: .
+    container_name: learn-linux
+    ports:
+      - "8000:8000"
+    # environment:
+    #   - DEBUG=False
+    #   - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
+    #   - ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
+    volumes:
+      - ./logs:/app/logs
+    security_opt:
+      - apparmor:unconfined  # Required for firejail
+    cap_add:
+      - SYS_ADMIN  # Required for firejail
+    restart: unless-stopped
+
+volumes:
+  logs:
