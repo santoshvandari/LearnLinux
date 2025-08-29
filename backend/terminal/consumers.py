@@ -1,60 +1,90 @@
-import json
-import subprocess
 import os
+import json
 import tempfile
-import landlock
+import shutil
+import subprocess
+from urllib.parse import parse_qs
 from channels.generic.websocket import AsyncWebsocketConsumer
+from asgiref.sync import sync_to_async
+import fcntl
+import pty
+import logging
+
+logger = logging.getLogger(__name__)
+
+def build_firejail_cmd(work_dir, argv):
+    cmd = [
+        "firejail", "--private={}".format(work_dir), "--seccomp", "--net=none", "--", *argv
+    ]
+    return cmd
 
 class TerminalConsumer(AsyncWebsocketConsumer):
     async def connect(self):
-        self.user = self.scope['user']
-        self.room_group_name = f"terminal_{self.user.id}"
+        query = parse_qs(self.scope["query_string"].decode())
+        session_id = query.get("session", [None])[0]
+        if not session_id:
+            logger.warning("No session ID provided")
+            await self.send(text_data=json.dumps({"error": "Session ID is required"}))
+            await self.close()
+            return
+        self.session_id = session_id
 
-        # Create a temporary directory for the user's session
-        self.session_dir = tempfile.mkdtemp()
-
-        # Apply Landlock sandboxing to restrict filesystem access
-        self.sandbox = landlock.Sandbox(self.session_dir)
-        self.sandbox.apply()
-
-        await self.channel_layer.group_add(
-            self.room_group_name,
-            self.channel_name
-        )
+        self.workspace = tempfile.mkdtemp(prefix=f"firejail_{session_id}_")
         await self.accept()
 
-    async def disconnect(self, close_code):
-        # Clean up sandbox and session directory
-        self.sandbox.cleanup()
-        os.rmdir(self.session_dir)
+        self.master_fd, self.proc = await sync_to_async(self.spawn_sandbox_shell)()
+        self.reader_task = await sync_to_async(self.start_reader)()
 
-        await self.channel_layer.group_discard(
-            self.room_group_name,
-            self.channel_name
+    def spawn_sandbox_shell(self):
+        argv = ["/bin/bash", "-li"]
+        cmd = build_firejail_cmd(self.workspace, argv)
+        master_fd, slave_fd = pty.openpty()
+        flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
+        fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+
+        proc = subprocess.Popen(
+            cmd,
+            cwd=self.workspace,
+            stdin=slave_fd,
+            stdout=slave_fd,
+            stderr=slave_fd,
+            close_fds=True
         )
+        os.close(slave_fd)
+        return master_fd, proc
 
-    async def receive(self, text_data):
-        data = json.loads(text_data)
-        command = data.get('command')
+    def start_reader(self):
+        def reader():
+            while True:
+                try:
+                    data = os.read(self.master_fd, 1024)
+                except OSError:
+                    break
+                if data:
+                    self.send(text_data=json.dumps({"output": data.decode(errors="ignore")}))
+        import threading
+        t = threading.Thread(target=reader, daemon=True)
+        t.start()
+        return t
 
-        if command:
-            # Execute the command within the sandbox
-            result = self.execute_command(command)
-            await self.send(text_data=json.dumps({
-                'output': result
-            }))
-        else:
-            await self.send(text_data=json.dumps({
-                'error': 'No command provided'
-            }))
-
-    def execute_command(self, command):
+    async def receive(self, text_data=None, bytes_data=None):
         try:
-            # Execute the command in the user's sandboxed environment
-            result = subprocess.run(
-                command, shell=True, cwd=self.session_dir,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            )
-            return result.stdout.decode() + result.stderr.decode()
+            data = json.loads(text_data) if text_data else {}
+            command = data.get("input", "")
+            logger.info(f"Received command: {command}")
+            if command:
+                logger.info(f"Received command: {command}")
+                os.write(self.master_fd, command.encode())
         except Exception as e:
-            return str(e)
+            logger.error(f"Error in receive: {e}")
+            await self.send(text_data=json.dumps({"error": str(e)}))
+
+    async def disconnect(self, close_code):
+        try:
+            self.proc.terminate()
+            self.proc.wait(timeout=1)
+        except Exception:
+            self.proc.kill()
+        finally:
+            os.close(self.master_fd)
+            shutil.rmtree(self.workspace, ignore_errors=True)
