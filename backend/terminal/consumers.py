@@ -25,18 +25,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def build_firejail_cmd(work_dir, argv):
-    """Build firejail command with security restrictions but better compatibility"""
+    """Build firejail command with STRICT security restrictions using profile"""
     cmd = [
         "firejail", 
-        f"--private={work_dir}",
-        "--seccomp",
-        "--net=none",
-        "--nonewprivs",
-        "--noroot",
-        "--nosound",
-        "--noprofile",  # Disable default profile to reduce conflicts
-        "--quiet",      # Reduce verbose output
-        "--shell=none", # Don't interfere with shell selection
+        "--profile=/etc/firejail/terminal.profile",  # Use the secure profile
+        f"--private={work_dir}",  # Private filesystem - ONLY access to work_dir
+        f"--whitelist={work_dir}", # ONLY allow access to the workspace
         "--", 
         *argv
     ]
@@ -60,7 +54,7 @@ class TerminalConsumer(AsyncWebsocketConsumer):
         self.reader_running = False
         self.master_fd = None
         self.proc = None
-        self.use_firejail = False  # Disable firejail for now to avoid startup issues
+        self.use_firejail = True  # ALWAYS use firejail for security
         
         try:
             self.workspace = tempfile.mkdtemp(prefix=f"terminal_{session_id}_")
@@ -107,6 +101,53 @@ class TerminalConsumer(AsyncWebsocketConsumer):
                 logger.error(f"Failed to send error message: {send_error}")
             await self.close()
 
+    def is_command_allowed(self, command):
+        """Check if a command is allowed for security"""
+        # Remove leading/trailing whitespace and split command
+        cmd_parts = command.strip().split()
+        if not cmd_parts:
+            return True
+            
+        base_cmd = cmd_parts[0].lower()
+        
+        # Whitelist of allowed commands
+        allowed_commands = {
+            'ls', 'pwd', 'cd', 'cat', 'echo', 'whoami', 'id', 'ps', 'grep', 'find',
+            'head', 'tail', 'wc', 'sort', 'uniq', 'mkdir', 'rmdir', 'rm', 'touch',
+            'cp', 'mv', 'clear', 'help', 'man', 'which', 'type', 'file', 'du', 'df',
+            'date', 'uptime', 'history', 'alias', 'unalias', 'jobs', 'fg', 'bg'
+        }
+        
+        # Blacklist of dangerous commands
+        dangerous_commands = {
+            'sudo', 'su', 'passwd', 'mount', 'umount', 'fdisk', 'mkfs', 'fsck',
+            'dd' , 'ssh', 'scp', 'rsync', 'nc', 'netcat', 'telnet',
+            'ftp', 'sftp', 'ping', 'traceroute', 'nslookup', 'dig', 'iptables',
+            'systemctl', 'service', 'chroot', 'docker', 'lxc', 'kvm', 'qemu',
+            'gcc', 'make', 'cmake', 'python', 'python3', 'node', 'npm', 'pip',
+            'apt', 'yum', 'dnf', 'pacman', 'zypper', 'emerge', 'brew', 'snap',
+            'flatpak', 'appimage', 'chmod', 'chown', 'chgrp', 'setuid', 'setgid',
+            'crontab', 'at', 'batch', 'nohup', 'screen', 'tmux', 'vim', 'nano',
+            'emacs', 'vi', 'ed', 'sed', 'awk', 'perl', 'ruby', 'php', 'java',
+            'javac', 'julia', 'go', 'rust', 'cargo', 'git', 'svn', 'hg', 'bzr'
+        }
+        
+        # Check for dangerous commands first
+        if base_cmd in dangerous_commands:
+            return False
+            
+        # Check for path traversal attempts
+        if '..' in command or command.startswith('/'):
+            return False
+            
+        # Check for command chaining/injection
+        dangerous_chars = ['&', '|', ';', '`', '$', '>', '<', '*', '?', '[', ']', '{', '}']
+        if any(char in command for char in dangerous_chars):
+            return False
+            
+        # Allow only whitelisted commands
+        return base_cmd in allowed_commands
+
     async def setup_workspace(self):
         """Set up the workspace with some basic files and directories"""
         try:
@@ -131,7 +172,7 @@ class TerminalConsumer(AsyncWebsocketConsumer):
             logger.error(f"Failed to setup workspace: {e}")
 
     def spawn_sandbox_shell(self):
-        """Spawn a shell in the workspace"""
+        """Spawn a shell in the workspace with MANDATORY sandboxing"""
         # Try different shells in order of preference
         shells_to_try = [
             "/bin/sh",
@@ -147,12 +188,20 @@ class TerminalConsumer(AsyncWebsocketConsumer):
                     argv = [shell, '-i']  # Interactive mode for bash
                 else:
                     argv = [shell]
-                cmd = build_simple_cmd(self.workspace, argv)
-                try:
-                    return self._spawn_pty_process(cmd, self.workspace)
-                except Exception as e:
-                    logger.warning(f"Failed to start {shell}: {e}")
-                    continue
+                
+                # ALWAYS use firejail for security - NO EXCEPTIONS
+                if self.use_firejail:
+                    cmd = build_firejail_cmd(self.workspace, argv)
+                    try:
+                        return self._spawn_pty_process(cmd, self.workspace)
+                    except Exception as e:
+                        logger.error(f"Firejail failed for {shell}: {e}")
+                        # DO NOT FALLBACK - Security is mandatory
+                        raise RuntimeError(f"Security sandbox failed: {e}")
+                else:
+                    # This should NEVER happen in production
+                    logger.error("SECURITY VIOLATION: Attempting to run without sandbox!")
+                    raise RuntimeError("Security sandbox is mandatory and cannot be disabled")
         
         raise RuntimeError("No suitable shell found")
 
@@ -432,6 +481,13 @@ class TerminalConsumer(AsyncWebsocketConsumer):
                 return
 
             logger.debug(f"Final command to execute: {repr(command)}")
+            
+            # CRITICAL SECURITY CHECK: Validate command before execution
+            if not self.is_command_allowed(command):
+                error_msg = f"Command '{command}' is not allowed for security reasons"
+                logger.warning(f"Blocked dangerous command: {repr(command)}")
+                await self.send(text_data=json.dumps({"type": "error", "data": error_msg}))
+                return
             
             # Check if process is still alive
             if not hasattr(self, 'proc') or not self.proc or self.proc.poll() is not None:
