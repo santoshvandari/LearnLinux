@@ -12,6 +12,7 @@ import asyncio
 import logging
 import select
 import errno
+from datetime import datetime
 
 logging.basicConfig(
     level=logging.INFO,
@@ -245,7 +246,7 @@ class TerminalConsumer(AsyncWebsocketConsumer):
             
             # Create sample files for learning
             files_to_create = [
-                ("welcome.txt", """Welcome to LearnLinux Terminal!
+                f("welcome.txt", """Welcome to LearnLinux Terminal!
 =================================
 
 This is a comprehensive Linux learning environment where you can practice commands safely.
@@ -311,13 +312,14 @@ echo "Creating backup..."
 mkdir -p backup/$(date +%Y-%m-%d)
 echo "Backup created in backup/$(date +%Y-%m-%d)"
 """),
-                ("logs/sample.log", """2024-01-01 10:00:00 INFO: System started
-2024-01-01 10:01:00 INFO: User logged in
-2024-01-01 10:02:00 WARNING: High memory usage detected
-2024-01-01 10:03:00 INFO: Backup completed successfully
-2024-01-01 10:04:00 ERROR: Failed to connect to database
-2024-01-01 10:05:00 INFO: Database connection restored
-2024-01-01 10:06:00 INFO: Application running normally
+                ("logs/sample.log", f"""{datetime.now()} INFO: System started
+{datetime.now()} INFO: User logged in
+{datetime.now()} WARNING: High memory usage detected
+{datetime.now()} INFO: Backup completed successfully
+{datetime.now()} ERROR: Failed to connect to database
+{datetime.now()} INFO: Database connection restored
+"""),
+                ("logs/sample.log", f"""{datetime.now()} INFO: Application running normally
 """),
                 ("config/app.conf", """# Sample configuration file
 [database]

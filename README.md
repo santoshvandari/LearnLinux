@@ -1,196 +1,210 @@
-# LearnLinux - Interactive Terminal Learning Environment
+# LearnLinux - Interactive Terminal Learning Platform
 
-![LearnLinux](https://img.shields.io/badge/LearnLinux-v2.0-green)
-![React](https://img.shields.io/badge/React-18+-blue)
-![Django](https://img.shields.io/badge/Django-5.2+-green)
-![WebSocket](https://img.shields.io/badge/WebSocket-Supported-orange)
+A modern, secure web-based Linux terminal simulator designed for safe learning and experimentation. Students can practice Linux commands in isolated Docker containers without affecting the host system or other users.
 
-A modern, interactive web-based Linux terminal simulator designed for learning Linux commands in a safe, sandboxed environment.
+## Core Concept
 
-## ✨ Features
+**Maximum Freedom + Perfect Isolation** - Users can execute almost any command, even destructive ones, within their own isolated sandbox environment. Each session runs in a separate Docker container that's destroyed after use.
 
-### 🎨 Modern UI
-- **Beautiful Landing Page**: Animated gradients, floating command particles, and smooth transitions
-- **Professional Terminal Interface**: Modern terminal window with authentic macOS-style controls
-- **Real-time ANSI Support**: Full color support with proper ANSI escape sequence parsing
-- **Responsive Design**: Works seamlessly on desktop and mobile devices
+## Features
 
-### 🔒 Security
-- **Sandboxed Environment**: Uses Firejail for secure command execution
-- **Isolated Workspace**: Each session gets its own temporary workspace
-- **No Network Access**: Terminal sessions are network-isolated for security
-- **Fallback Mode**: Graceful fallback when sandboxing is unavailable
+### **Security & Isolation**
+- **Docker Container Isolation**: Each user session runs in a separate, isolated container
+- **Temporary Workspaces**: Fresh filesystem for each session, automatically destroyed
+- **Resource Limits**: CPU, memory, and disk usage controls
+- **Multi-User Safe**: Users cannot see or affect each other's sessions
+- **Host Protection**: Complete isolation from the host system
 
-### 💻 Terminal Features
-- **Real Terminal Emulation**: Authentic Linux terminal experience
-- **ANSI Color Support**: Full color terminal with proper escape sequence handling
-- **Command History**: Navigate through command history with arrow keys
-- **Tab Completion**: (Coming soon)
-- **Multi-session Support**: Each browser tab gets its own terminal session
+### **Terminal Experience**
+- **Real Linux Commands**: Execute actual bash commands and programs
+- **Full Command Support**: Programming languages, text editors, system tools
+- **ANSI Color Support**: Proper terminal colors and formatting
+- **Command History**: Arrow key navigation through previous commands
+- **Text Selection**: Copy terminal output with mouse selection
+- **Keyboard Shortcuts**: Standard terminal shortcuts (Ctrl+C, Ctrl+L, etc.)
 
-### 🚀 Technical Features
-- **WebSocket Communication**: Real-time bidirectional communication
-- **Advanced ANSI Parser**: Handles complex terminal output with colors and formatting
-- **Optimized Performance**: Efficient terminal output handling and memory management
-- **Error Handling**: Graceful error handling and connection recovery
+### **Learning Environment**
+- **Comprehensive File Structure**: Realistic Linux directory layout
+- **Sample Files**: Pre-configured examples and tutorials
+- **Programming Ready**: Python, shell scripts, and development tools
+- **Educational Content**: Built-in tutorials and command examples
 
-## 🛠 Installation
+## Tech Stack
+
+### Backend
+- **Django 5.2.5** - Web framework
+- **Django Rest Framework 3.16.1** - REST API framework
+- **Django Channels** - WebSocket support for real-time terminal
+- **Python 3.11** - Runtime environment
+- **Docker** - Containerization and isolation
+- **PTY** - Pseudo-terminal for authentic shell experience
+
+### Frontend  
+- **React 19.1.1** - Modern UI framework with hooks
+- **Vite** - Fast build tool and development server
+- **Tailwind CSS 4** - Utility-first styling
+- **WebSocket** - Real-time communication
+- **Heroicons** - Beautiful SVG icons
+
+## Quick Start
 
 ### Prerequisites
-- Python 3.8+
-- Node.js 16+
-- Linux environment (recommended)
-- Firejail (optional, for enhanced security)
+- Docker and Docker Compose
+- Git
+- Node.js
 
-### Quick Setup
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/santoshvandari/LearnLinux.git
-   cd LearnLinux
-   ```
-
-2. **Run the setup script:**
-   ```bash
-   chmod +x setup.sh
-   ./setup.sh
-   ```
-
-### Manual Setup
-
-#### Backend Setup
+### 1. Clone Repository
 ```bash
-cd backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+git clone https://github.com/santoshvandari/LearnLinux.git
+cd LearnLinux
 ```
 
-#### Frontend Setup
+### 2. Start Backend (Docker)
+```bash
+cd backend
+docker-compose up --build
+```
+
+The backend will be available at `http://localhost:8000` or `http://127.0.0.1:8000`
+
+### 3. Start Frontend (Development)
 ```bash
 cd frontend
 npm install
+npm run dev
 ```
 
-#### Install Firejail (Optional but Recommended)
+The frontend will be available at `http://localhost:5173` or `http://127.0.0.1:5173`
+
+## Docker Deployment
+
+### Backend Only (Production Ready)
 ```bash
-# Ubuntu/Debian
-sudo apt-get install firejail
+cd backend
 
-# CentOS/RHEL
-sudo yum install firejail
+# Build the image
+docker build -t learn-linux .
 
-# Arch Linux
-sudo pacman -S firejail
+# Run with Docker Compose (recommended)
+docker-compose up -d
+
+# Or run directly
+docker run -d \
+  -p 8000:8000 \
+  --name learn-linux \
+  --security-opt no-new-privileges:true \
+  --cap-drop ALL \
+  --cap-add SETUID --cap-add SETGID --cap-add SYS_ADMIN \
+  learn-linux
 ```
 
-## 🚀 Usage
+### Frontend Build for Production
+```bash
+cd frontend
+npm run build
+# Serve the dist/ folder with your web server
+```
 
-### Starting the Application
+## How It Works
 
-1. **Start the Backend:**
-   ```bash
-   cd backend
-   source venv/bin/activate
-   python manage.py runserver
-   ```
+### Session Flow
+1. **User connects** → Frontend generates unique session ID
+2. **WebSocket established** → Real-time communication channel created
+3. **Container spawned** → Isolated Docker environment with temporary workspace
+4. **Commands executed** → PTY forwards commands to shell in container
+5. **Session ends** → Container destroyed, all data cleaned up
 
-2. **Start the Frontend:**
-   ```bash
-   cd frontend
-   npm run dev
-   ```
+### Security Architecture
+```
+User Input → Frontend Validation → WebSocket → Django Consumer 
+    ↓
+Docker Container (Isolated) → Shell Process → Command Execution
+    ↓
+Output → PTY → WebSocket → Frontend Display
+```
 
-3. **Open in Browser:**
-   Visit `http://localhost:5173` in your web browser.
+### File Structure
+```
+LearnLinux/
+├── backend/                    # Django backend
+│   ├── core/                  # Django settings and configuration
+│   ├── terminal/              # WebSocket consumer and terminal logic
+│   ├── Dockerfile             # Container configuration
+│   ├── docker-compose.yml     # Service orchestration
+│   └── requirements.txt       # Python dependencies
+├── frontend/                  # React frontend
+│   ├── src/
+│   │   ├── components/        # React components
+│   │   ├── hooks/            # Custom React hooks
+│   │   ├── utils/            # Utility functions
+│   │   └── styles/           # CSS styling
+│   ├── package.json          # Node.js dependencies
+│   └── vite.config.js        # Vite configuration
+└── README.md                 # This file
+```
 
-### Using the Terminal
+## Configuration
 
-1. **Click "Start Learning Now"** on the landing page
-2. **Type Linux commands** in the terminal (e.g., `ls`, `pwd`, `whoami`)
-3. **Explore the sandbox** - try creating files and directories
-4. **Use command history** with up/down arrow keys
-5. **Clear screen** with `Ctrl+L` or `clear` command
+### Environment Variables
+```bash
+# Backend (.env)
+DJANGO_DEVELOPMENT=False       # Set to True for development
+ALLOWED_HOSTS=localhost,127.0.0.1,your-domain.com
 
-### Available Commands
-The terminal supports standard Linux commands including:
-- File operations: `ls`, `cat`, `touch`, `mkdir`, `rm`, `cp`, `mv`
-- Navigation: `cd`, `pwd`
-- System info: `whoami`, `id`, `uname`
-- Text processing: `grep`, `sort`, `uniq`, `wc`
-- And many more standard Unix utilities!
+# Frontend (.env)
+VITE_BACKEND_URL=http://localhost:8000
+VITE_WS_URL=ws://localhost:8000
+```
 
-## 🏗 Architecture
+### Security Settings
+- **Container Limits**: 1GB RAM, 1 hour timeout, 50 processes max
+- **Network**: Isolated container networking
+- **Filesystem**: Temporary workspaces with automatic cleanup
+- **Commands**: Flexible filtering with education-friendly permissions
 
-### Frontend (React + Vite)
-- **Landing Page**: Modern, animated introduction page
-- **Terminal Container**: Professional terminal window interface
-- **Terminal Engine**: Real-time WebSocket-based terminal emulation
-- **ANSI Parser**: Advanced parsing of terminal escape sequences
-- **State Management**: Efficient terminal state and history management
+## Educational Use Cases
 
-### Backend (Django + Channels)
-- **WebSocket Consumer**: Handles real-time terminal communication
-- **Sandbox Manager**: Manages isolated terminal sessions
-- **Security Layer**: Implements sandboxing with Firejail
-- **Session Management**: Handles multiple concurrent terminal sessions
+### Perfect For:
+- **Linux Command Learning**: Safe environment for beginners
+- **System Administration Practice**: Try dangerous commands safely  
+- **DevOps Learning**: Practice containerization and deployment
 
-## 🎨 UI/UX Improvements
+### Example Learning Scenarios:
+```bash
+# File system exploration
+ls -la
+cd Documents/
+cat welcome.txt
 
-### Landing Page
-- **Animated Background**: Beautiful gradient backgrounds with floating particles
-- **Typing Animation**: Animated title with typewriter effect
-- **Feature Grid**: Modern feature showcase with hover effects
-- **Terminal Preview**: Interactive terminal preview window
-- **Responsive Layout**: Optimized for all device sizes
+# System monitoring
+ps aux
+top
+free -m
+df -h
 
-### Terminal Interface
-- **Authentic Design**: macOS-style terminal window with traffic light controls
-- **Status Indicators**: Connection status, session info, and environment details
-- **Enhanced Typography**: JetBrains Mono font for optimal code readability
-- **Color Scheme**: Professional dark theme with proper ANSI colors
-- **Smooth Animations**: Subtle transitions and hover effects
+# Text processing
+grep "Linux" *.txt
+awk '{print $1}' sample.log
+```
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/amazing-feature`
-3. Commit your changes: `git commit -m 'Add some amazing feature'`
-4. Push to the branch: `git push origin feature/amazing-feature`
-5. Open a pull request
+2. Create a feature branch: `git checkout -b feature-name`
+3. Commit changes: `git commit -am 'Add feature'`
+4. Push to branch: `git push origin feature-name`
+5. Submit a Pull Request
 
-## 📝 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🐛 Troubleshooting
+## Acknowledgments
 
-### Common Issues
-
-**Terminal not connecting:**
-- Check that both backend and frontend are running
-- Verify WebSocket URL in constants.js
-- Check browser console for errors
-
-**Commands not working:**
-- Ensure Firejail is installed and configured
-- Check backend logs for error messages
-- Verify workspace permissions
-
-**ANSI colors not displaying:**
-- Check terminal CSS is loaded properly
-- Verify ANSI parser is working correctly
-- Test with simple color commands like `ls --color=always`
-
-## 🚀 Future Enhancements
-
-- [ ] Tab completion support
-- [ ] File upload/download functionality
-- [ ] Terminal themes and customization
-- [ ] Multi-pane terminal support
-- [ ] Integration with learning modules
-- [ ] Command documentation and hints
-- [ ] Progress tracking and achievements
+- Built with modern web technologies for optimal learning experience
+- Inspired by the need for safe Linux command practice environments
+- Designed with security and education as top priorities
 
 ---
 
-**Made with ❤️ for Linux enthusiasts and learners everywhere**
+**⚠️ Note**: This is an educational platform. While designed with security best practices, always run in isolated environments for production deployments.
