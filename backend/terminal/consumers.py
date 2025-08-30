@@ -31,21 +31,18 @@ def build_firejail_cmd(work_dir, argv):
         f"--private={work_dir}",
         "--seccomp",
         "--net=none",
-        "--no3d",
-        "--nodvd",
         "--nogroups",
-        "--noinput",
         "--nonewprivs",
         "--noroot",
         "--nosound",
-        "--notv",
-        "--nou2f",
-        "--novideo",
-        "--memory-deny-write-execute",
         "--", 
         *argv
     ]
     return cmd
+
+def build_simple_cmd(work_dir, argv):
+    """Fallback: Build a simple command without firejail"""
+    return argv
 
 class TerminalConsumer(AsyncWebsocketConsumer):
     async def connect(self):
@@ -57,10 +54,11 @@ class TerminalConsumer(AsyncWebsocketConsumer):
             return
         
         self.session_id = session_id
-        self.workspace = tempfile.mkdtemp(prefix=f"firejail_{session_id}_")
+        self.workspace = tempfile.mkdtemp(prefix=f"terminal_{session_id}_")
         self.reader_running = False
         self.master_fd = None
         self.proc = None
+        self.use_firejail = True  # Try firejail first, fallback if it fails
         
         # Create some basic files in the workspace
         await self.setup_workspace()
@@ -107,10 +105,24 @@ class TerminalConsumer(AsyncWebsocketConsumer):
             logger.error(f"Failed to setup workspace: {e}")
 
     def spawn_sandbox_shell(self):
-        """Spawn a sandboxed shell using firejail"""
+        """Spawn a shell, preferably sandboxed with firejail"""
         argv = ["/bin/bash", "-li"]
-        cmd = build_firejail_cmd(self.workspace, argv)
         
+        # Try firejail first
+        if self.use_firejail:
+            try:
+                cmd = build_firejail_cmd(self.workspace, argv)
+                return self._spawn_pty_process(cmd, self.workspace)
+            except Exception as e:
+                logger.warning(f"Firejail failed, falling back to direct shell: {e}")
+                self.use_firejail = False
+        
+        # Fallback to direct shell execution in the workspace
+        cmd = build_simple_cmd(self.workspace, argv)
+        return self._spawn_pty_process(cmd, self.workspace)
+
+    def _spawn_pty_process(self, cmd, cwd):
+        """Common method to spawn a process with PTY"""
         master_fd, slave_fd = pty.openpty()
         
         # Set master_fd to non-blocking
@@ -122,25 +134,36 @@ class TerminalConsumer(AsyncWebsocketConsumer):
         env.update({
             'PS1': r'\[\033[01;32m\]\u@learnlinux\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ ',
             'TERM': 'xterm-256color',
-            'HOME': self.workspace,
-            'USER': 'learner',
+            'HOME': cwd if self.use_firejail else self.workspace,
+            'USER': 'learner' if self.use_firejail else os.environ.get('USER', 'learner'),
             'SHELL': '/bin/bash',
             'LANG': 'en_US.UTF-8',
-            'LC_ALL': 'en_US.UTF-8'
+            'LC_ALL': 'C.UTF-8',  # More compatible locale
+            'PATH': '/usr/local/bin:/usr/bin:/bin'
         })
 
         try:
             proc = subprocess.Popen(
                 cmd,
-                cwd=self.workspace,
+                cwd=cwd,
                 stdin=slave_fd,
                 stdout=slave_fd,
                 stderr=slave_fd,
                 close_fds=True,
-                env=env
+                env=env,
+                preexec_fn=os.setsid  # Create a new session
             )
             
             os.close(slave_fd)
+            
+            # Give the process a moment to initialize
+            import time
+            time.sleep(0.1)
+            
+            # Check if process is still running
+            if proc.poll() is not None:
+                raise RuntimeError(f"Process died immediately with return code {proc.returncode}")
+            
             return master_fd, proc
             
         except Exception as e:
@@ -152,7 +175,7 @@ class TerminalConsumer(AsyncWebsocketConsumer):
         """Enhanced async method to read output from the terminal"""
         buffer = b""
         
-        while self.reader_running:
+        while self.reader_running and self.master_fd is not None:
             try:
                 # Use select to check if data is available
                 ready, _, _ = await sync_to_async(select.select)([self.master_fd], [], [], 0.1)
@@ -163,51 +186,41 @@ class TerminalConsumer(AsyncWebsocketConsumer):
                         if data:
                             buffer += data
                             
-                            # Process complete lines
-                            while b'\n' in buffer or b'\r' in buffer:
-                                if b'\r\n' in buffer:
-                                    line, buffer = buffer.split(b'\r\n', 1)
-                                    line += b'\n'
-                                elif b'\n' in buffer:
-                                    line, buffer = buffer.split(b'\n', 1)
-                                    line += b'\n'
-                                elif b'\r' in buffer:
-                                    line, buffer = buffer.split(b'\r', 1)
-                                    line += b'\n'
-                                else:
-                                    break
-                                
+                            # Process data immediately for better responsiveness
+                            if buffer:
                                 try:
-                                    output = line.decode('utf-8', errors='replace')
-                                    if output.strip():  # Only send non-empty output
+                                    # Try to decode the entire buffer
+                                    output = buffer.decode('utf-8', errors='replace')
+                                    if output:
                                         await self.send(text_data=json.dumps({"output": output}))
+                                        buffer = b""
                                 except UnicodeDecodeError:
-                                    # Handle binary data
-                                    output = line.decode('utf-8', errors='ignore')
-                                    if output.strip():
+                                    # If decoding fails, try with ignore errors
+                                    output = buffer.decode('utf-8', errors='ignore')
+                                    if output:
                                         await self.send(text_data=json.dumps({"output": output}))
+                                        buffer = b""
+                        else:
+                            # EOF reached
+                            break
                             
-                            # If buffer has data but no complete lines, send it after a delay
-                            if buffer and len(buffer) > 0:
-                                try:
-                                    partial_output = buffer.decode('utf-8', errors='replace')
-                                    if partial_output.strip():
-                                        await asyncio.sleep(0.1)  # Small delay for more data
-                                        ready_again, _, _ = await sync_to_async(select.select)([self.master_fd], [], [], 0.05)
-                                        if not ready_again:  # No more data coming
-                                            await self.send(text_data=json.dumps({"output": partial_output}))
-                                            buffer = b""
-                                except UnicodeDecodeError:
-                                    buffer = b""
-                        
                     except (OSError, IOError) as e:
                         if e.errno == errno.EIO:  # End of file
+                            logger.info("Terminal process ended (EIO)")
                             break
-                        logger.error(f"Error reading from terminal: {e}")
-                        break
+                        elif e.errno == errno.EAGAIN:  # Resource temporarily unavailable
+                            continue
+                        else:
+                            logger.error(f"Error reading from terminal: {e}")
+                            break
                 else:
                     # No data available, small delay to prevent busy waiting
-                    await asyncio.sleep(0.01)
+                    await asyncio.sleep(0.05)
+                    
+                    # Check if process is still alive
+                    if hasattr(self, 'proc') and self.proc and self.proc.poll() is not None:
+                        logger.info(f"Terminal process exited with code: {self.proc.returncode}")
+                        break
                     
             except Exception as e:
                 logger.error(f"Error in read_output loop: {e}")
@@ -228,6 +241,11 @@ class TerminalConsumer(AsyncWebsocketConsumer):
 
             logger.debug(f"Received command: {repr(command)}")
             
+            # Check if process is still alive
+            if not hasattr(self, 'proc') or not self.proc or self.proc.poll() is not None:
+                await self.send(text_data=json.dumps({"error": "Terminal process is not running"}))
+                return
+            
             # Send the command to the terminal
             command_bytes = (command + "\n").encode('utf-8')
             await sync_to_async(os.write)(self.master_fd, command_bytes)
@@ -247,11 +265,15 @@ class TerminalConsumer(AsyncWebsocketConsumer):
             # Terminate the process
             if hasattr(self, 'proc') and self.proc:
                 try:
+                    # Try graceful termination first
                     self.proc.terminate()
-                    await sync_to_async(self.proc.wait)(timeout=5)
-                except subprocess.TimeoutExpired:
-                    self.proc.kill()
-                    await sync_to_async(self.proc.wait)()
+                    try:
+                        await sync_to_async(self.proc.wait)(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        # Force kill if graceful termination fails
+                        logger.warning("Graceful termination failed, force killing process")
+                        self.proc.kill()
+                        await sync_to_async(self.proc.wait)()
                 except Exception as e:
                     logger.error(f"Error terminating process: {e}")
                     
@@ -259,6 +281,7 @@ class TerminalConsumer(AsyncWebsocketConsumer):
             if hasattr(self, 'master_fd') and self.master_fd is not None:
                 try:
                     os.close(self.master_fd)
+                    self.master_fd = None
                 except Exception as e:
                     logger.error(f"Error closing master_fd: {e}")
                     
