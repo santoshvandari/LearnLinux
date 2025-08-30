@@ -1,4 +1,4 @@
-// Blinking cursor component
+// Enhanced blinking cursor component
 import React, { useState, useEffect } from 'react';
 
 const TerminalCursor = ({ 
@@ -17,28 +17,36 @@ const TerminalCursor = ({
 
     const interval = setInterval(() => {
       setIsVisible(prev => !prev);
-    }, 500); // Blink every 500ms
+    }, 530); // Blink every 530ms for better visibility
 
     return () => clearInterval(interval);
   }, [blinking, visible]);
 
   if (!visible) {
-    return null;
+    return <span style={{ width: '0.6em', display: 'inline-block' }}>&nbsp;</span>;
   }
 
-  const cursorClasses = [
-    'terminal-cursor',
-    !blinking && 'solid',
-    className
-  ].filter(Boolean).join(' ');
+  const cursorStyle = {
+    backgroundColor: isVisible ? '#00ff00' : 'transparent',
+    color: isVisible ? '#000000' : '#00ff00',
+    width: '0.6em',
+    height: '1.4em',
+    display: 'inline-block',
+    fontWeight: 'bold',
+    textAlign: 'center',
+    verticalAlign: 'top',
+    lineHeight: '1.4',
+    fontFamily: 'inherit',
+    fontSize: 'inherit',
+    border: isVisible ? 'none' : '1px solid #00ff00',
+    animation: blinking ? 'none' : undefined,
+    transition: blinking ? 'none' : 'all 0.1s ease'
+  };
 
   return (
     <span 
-      className={cursorClasses}
-      style={{ 
-        opacity: isVisible ? 1 : 0,
-        transition: blinking ? 'none' : 'opacity 0.1s ease'
-      }}
+      style={cursorStyle}
+      className={className}
     >
       {character}
     </span>

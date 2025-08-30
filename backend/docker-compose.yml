@@ -6,17 +6,33 @@ services:
     container_name: learn-linux
     ports:
       - "8000:8000"
-    # environment:
-    #   - DEBUG=False
-    #   - SECRET_KEY=${SECRET_KEY:-your-secret-key-here}
-    #   - ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
     volumes:
       - ./logs:/app/logs
+      - terminal_workspaces:/tmp/terminal_sessions:rw
     security_opt:
-      - apparmor:unconfined  # Required for firejail
+      - no-new-privileges:true
+      - seccomp:unconfined  # Required for firejail
+    cap_drop:
+      - ALL
     cap_add:
-      - SYS_ADMIN  # Required for firejail
+      - SETUID  # Required for firejail user switching
+      - SETGID  # Required for firejail group switching
+      - SYS_ADMIN  # Required for firejail namespace creation
+    tmpfs:
+      - /tmp:noexec,nosuid,size=200m
+      - /var/run:noexec,nosuid,size=50m
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "manage.py", "check"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 volumes:
   logs:
+  terminal_workspaces:
+    driver: local

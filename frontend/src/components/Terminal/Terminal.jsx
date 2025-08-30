@@ -15,9 +15,14 @@ const Terminal = ({
   onDisconnect 
 }) => {
   const terminalRef = useRef(null);
-  const [sessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+  const [sessionId] = useState(() => {
+    const id = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    console.log('Generated session ID:', id);
+    return id;
+  });
   const [hasSelection, setHasSelection] = useState(false);
   const [selectedText, setSelectedText] = useState('');
+  const lastProcessedMessageRef = useRef(null);
 
   // Initialize hooks
   const { connectionStatus, sendMessage, lastMessage, reconnect } = useWebSocket(WEBSOCKET_URL, sessionId);
@@ -46,42 +51,76 @@ const Terminal = ({
     resetNavigation
   } = useCommandHistory();
 
-  // Handle WebSocket messages
+  // Handle WebSocket messages with deduplication
   useEffect(() => {
-    if (lastMessage) {
-      if (lastMessage.output) {
-        addOutput(lastMessage.output, 'output');
-      } else if (lastMessage.echo) {
-        addOutput(lastMessage.echo, 'input');
-      } else if (lastMessage.error) {
-        addOutput(lastMessage.error, 'error');
+    if (lastMessage && lastMessage !== lastProcessedMessageRef.current) {
+      console.log('Processing new message:', lastMessage);
+      lastProcessedMessageRef.current = lastMessage;
+      
+      if (lastMessage.type === 'output' && lastMessage.data) {
+        // Process formatted output from backend
+        const output = lastMessage.data;
+        if (output && output.trim()) {
+          // Apply additional client-side filtering for better readability
+          const cleanOutput = output
+            // Remove remaining artifacts that might have slipped through
+            .replace(/\{"input":"[^"]*"\}/g, '')
+            // Remove prompt artifacts
+            .replace(/\$\s*$/gm, '')
+            // Clean up excessive whitespace
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+            
+          if (cleanOutput) {
+            console.log('Adding output to terminal:', cleanOutput);
+            addOutput(cleanOutput, 'output');
+          }
+        }
+      } else if (lastMessage.output) {
+        // Legacy format support
+        const cleanOutput = lastMessage.output
+          .replace(/\{"input":"[^"]*"\}/g, '')
+          .trim();
+        if (cleanOutput) {
+          console.log('Adding legacy output to terminal:', cleanOutput);
+          addOutput(cleanOutput, 'output');
+        }
+      } else if (lastMessage.error || lastMessage.type === 'error') {
+        const errorMsg = lastMessage.error || lastMessage.data || 'Unknown error';
+        console.log('Adding error to terminal:', errorMsg);
+        addOutput(`Error: ${errorMsg}`, 'error');
       }
     }
   }, [lastMessage, addOutput]);
 
   // Handle connection status changes
   useEffect(() => {
+    console.log('Connection status changed to:', connectionStatus);
     if (connectionStatus === 'connected') {
-      addOutput('Connected to terminal session', 'output');
-      addPrompt();
       if (onConnect) onConnect();
     } else if (connectionStatus === 'disconnected') {
-      addOutput('Disconnected from terminal session', 'error');
+      addOutput('Connection lost. Please refresh to reconnect.', 'error');
       if (onDisconnect) onDisconnect();
     } else if (connectionStatus === 'error') {
-      addOutput('Connection error - attempting to reconnect...', 'error');
+      addOutput('Connection error - check your network and try refreshing the page', 'error');
     }
-  }, [connectionStatus, addOutput, addPrompt, onConnect, onDisconnect]);
+  }, [connectionStatus, addOutput, onConnect, onDisconnect]);
 
   // Command execution handler
   const handleCommand = useCallback((command) => {
     if (command.trim()) {
+      console.log('Executing command:', command);
       addCommand(command);
-      sendMessage(command);
+      // Send command in the format expected by the backend
+      const success = sendMessage(command);
+      if (!success) {
+        console.warn('Failed to send command, WebSocket not connected');
+        addOutput('Error: Terminal not connected. Please refresh the page.', 'error');
+      }
     }
     resetNavigation();
     updateCurrentLine('');
-  }, [addCommand, sendMessage, resetNavigation, updateCurrentLine]);
+  }, [addCommand, sendMessage, resetNavigation, updateCurrentLine, addOutput]);
 
   // History navigation handlers
   const handleHistoryUp = useCallback((currentCmd) => {

@@ -10,6 +10,9 @@ import fcntl
 import pty
 import asyncio
 import logging
+import select
+import errno
+from datetime import datetime
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,121 +26,742 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def build_firejail_cmd(work_dir, argv):
+    """Build firejail command with appropriate security restrictions"""
     cmd = [
-        "firejail", "--private={}".format(work_dir), "--seccomp", "--net=none", "--", *argv
+        "firejail",
+        f"--private={work_dir}",  # Private filesystem - ONLY access to work_dir
+        f"--whitelist={work_dir}", # ONLY allow access to the workspace
+        "--noroot",               # No root access
+        "--nosound",              # No sound access
+        "--no3d",                 # No 3D acceleration
+        "--nodvd",                # No DVD access
+        "--nogroups",             # No supplementary groups
+        "--nonewprivs",           # No new privileges
+        "--noprinters",           # No printer access
+        "--notv",                 # No TV access
+        "--nou2f",                # No U2F access
+        "--novideo",              # No video devices
+        "--seccomp",              # Enable seccomp
+        "--caps.drop=all",        # Drop all capabilities
+        "--shell=none",           # No shell access to parent
+        "--rlimit-as=1000000000", # Limit virtual memory to 1GB
+        "--rlimit-cpu=3600",      # Limit CPU time to 1 hour
+        "--rlimit-fsize=100000000", # Limit file size to 100MB
+        "--rlimit-nproc=50",      # Limit number of processes
+        "--timeout=01:00:00",     # 1 hour timeout
     ]
+    
+    # Add profile if it exists (production environment)
+    if os.path.exists('/etc/firejail/terminal.profile'):
+        cmd.insert(1, '--profile=/etc/firejail/terminal.profile')
+    else:
+        # Add network restriction only in development (profile handles this in production)
+        cmd.append("--net=none")
+    
+    cmd.extend(["--", *argv])
     return cmd
+
+def build_simple_cmd(work_dir, argv):
+    """Fallback: Build a simple command without firejail"""
+    return argv
 
 class TerminalConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         query = parse_qs(self.scope["query_string"].decode())
         session_id = query.get("session", [None])[0]
         if not session_id:
-            await self.send(text_data=json.dumps({"error": "Session ID is required"}))
+            logger.error("No session ID provided")
+            await self.send(text_data=json.dumps({"type": "error", "data": "Session ID is required"}))
             await self.close()
             return
         
         self.session_id = session_id
-        self.workspace = tempfile.mkdtemp(prefix=f"firejail_{session_id}_")
         self.reader_running = False
+        self.master_fd = None
+        self.proc = None
+        self.use_firejail = True  # ALWAYS use firejail for security
         
-        await self.accept()
-
         try:
+            self.workspace = tempfile.mkdtemp(prefix=f"terminal_{session_id}_")
+            logger.info(f"Created workspace: {self.workspace}")
+            
+            # Create some basic files in the workspace
+            await self.setup_workspace()
+            
+            await self.accept()
+            logger.info(f"WebSocket connection accepted for session: {session_id}")
+
+            # Start the terminal process
             self.master_fd, self.proc = await sync_to_async(self.spawn_sandbox_shell)()
+            logger.info(f"Terminal process started with PID: {self.proc.pid}")
+            
             self.reader_running = True
+            
             # Start the async reader task
             asyncio.create_task(self.read_output())
-            await self.send(text_data=json.dumps({"output": "Connected to sandboxed terminal.\n"}))
+            
+            # Send welcome message with a small delay to ensure connection is stable
+            await asyncio.sleep(1.0)  # Increased delay to let shell initialize
+            
+            # Check if process is still running before sending welcome
+            if self.proc.poll() is not None:
+                logger.error(f"Shell process died before welcome message, exit code: {self.proc.returncode}")
+                await self.send(text_data=json.dumps({"type": "error", "data": "Terminal process failed to initialize"}))
+                await self.close()
+                return
+            
+            welcome_msg = "Welcome to LearnLinux Terminal!\n$ "
+            message_data = json.dumps({"type": "output", "data": welcome_msg})
+            logger.debug(f"Sending welcome message: {repr(message_data)}")
+            await self.send(text_data=message_data)
+            logger.info("Welcome message sent successfully")
+            
         except Exception as e:
-            logger.error(f"Failed to spawn shell: {e}")
-            await self.send(text_data=json.dumps({"error": f"Failed to start terminal: {str(e)}"}))
+            logger.error(f"Failed to initialize terminal session: {e}")
+            try:
+                error_msg = json.dumps({"type": "error", "data": f"Failed to start terminal: {str(e)}"})
+                logger.debug(f"Sending error message: {repr(error_msg)}")
+                await self.send(text_data=error_msg)
+            except Exception as send_error:
+                logger.error(f"Failed to send error message: {send_error}")
             await self.close()
 
-    def spawn_sandbox_shell(self):
-        argv = ["/bin/bash", "-li"]
-        cmd = build_firejail_cmd(self.workspace, argv)
-        master_fd, slave_fd = pty.openpty()
+    def is_command_allowed(self, command):
+        """Check if a command is allowed - permissive approach since we're in Docker containers"""
+        # Remove leading/trailing whitespace and split command
+        cmd_parts = command.strip().split()
+        if not cmd_parts:
+            return True
+            
+        base_cmd = cmd_parts[0].lower()
         
-        # Set master_fd to non-blocking
-        flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
-        fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+        # Critical system commands that could affect container security
+        strictly_forbidden = {
+            'sudo', 'su', 'passwd',  # User/privilege escalation
+            'mount', 'umount',       # Filesystem mounting
+            'chroot', 'unshare',     # Container escape attempts
+            'nsenter', 'setns',      # Namespace manipulation
+            'reboot', 'shutdown', 'halt', 'poweroff',  # System control
+            'init', 'systemctl', 'service',  # System services
+            'iptables', 'ufw', 'firewall-cmd',  # Firewall manipulation
+            'modprobe', 'insmod', 'rmmod',  # Kernel module manipulation
+            'sysctl',  # Kernel parameters
+        }
+        
+        # Network commands that could be used for attacks
+        network_restricted = {
+            'ssh', 'scp', 'rsync',   # Remote access (allow if needed for learning)
+            'nc', 'netcat', 'ncat',  # Raw network connections
+            'telnet', 'ftp', 'tftp', # Insecure protocols
+            'wget', 'curl',          # Allow but monitor - useful for learning
+        }
+        
+        # Development tools - allow since they're useful for learning
+        dev_tools_allowed = {
+            'python', 'python3', 'node', 'npm', 'pip', 'pip3',
+            'gcc', 'g++', 'clang', 'make', 'cmake',
+            'java', 'javac', 'scala', 'kotlin',
+            'go', 'rust', 'cargo', 'rustc',
+            'ruby', 'gem', 'php', 'perl',
+            'julia', 'r', 'octave',
+            'git', 'svn', 'hg', 'bzr'  # Version control
+        }
+        
+        # Text editors - allow for learning
+        editors_allowed = {
+            'vim', 'vi', 'nano', 'emacs', 'ed',
+            'micro', 'joe', 'pico'
+        }
+        
+        # System monitoring - useful for learning
+        monitoring_allowed = {
+            'top', 'htop', 'ps', 'pstree', 'jobs', 'fg', 'bg',
+            'kill', 'killall', 'pkill', 'pgrep',
+            'free', 'df', 'du', 'lsof', 'netstat', 'ss',
+            'iostat', 'vmstat', 'sar', 'mpstat'
+        }
+        
+        # Package managers - restrict to prevent container pollution
+        package_managers = {
+            'apt', 'apt-get', 'aptitude', 'dpkg',
+            'yum', 'dnf', 'rpm', 'zypper',
+            'pacman', 'emerge', 'portage',
+            'brew', 'snap', 'flatpak', 'appimage'
+        }
+        
+        # Check for strictly forbidden commands
+        if base_cmd in strictly_forbidden:
+            logger.warning(f"Blocked strictly forbidden command: {base_cmd}")
+            return False
+        
+        # Block package managers to prevent container modification
+        if base_cmd in package_managers:
+            logger.warning(f"Blocked package manager command: {base_cmd}")
+            return False
+        
+        # Allow network tools but log them (useful for learning)
+        if base_cmd in network_restricted:
+            logger.info(f"Allowing monitored network command: {base_cmd}")
+            # You could add additional validation here if needed
+            return True
+        
+        # Check for dangerous file system access patterns
+        # Block access to sensitive system directories
+        sensitive_paths = ['/etc/passwd', '/etc/shadow', '/etc/sudoers', '/root', '/boot', '/sys', '/proc/sys']
+        if any(path in command for path in sensitive_paths):
+            logger.warning(f"Blocked access to sensitive path in command: {command}")
+            return False
+        
+        # Check for command injection attempts - more permissive approach
+        # Allow basic shell features but block dangerous ones
+        dangerous_patterns = [
+            'rm -rf /', 'rm -rf /usr', 'rm -rf /var', 'rm -rf /etc',  # Destructive rm
+            '>(', '<(',  # Process substitution
+            'eval ', 'exec ',  # Code execution
+            'curl.*|.*sh', 'wget.*|.*sh',  # Download and execute patterns
+            'chmod.*777', 'chmod.*+s',  # Dangerous permission changes
+        ]
+        
+        for pattern in dangerous_patterns:
+            if pattern in command.lower():
+                logger.warning(f"Blocked dangerous pattern '{pattern}' in command: {command}")
+                return False
+        
+        # Allow most commands since we're in a sandboxed Docker container
+        # This makes the terminal much more educational and useful
+        logger.debug(f"Allowing command: {base_cmd}")
+        return True
 
-        proc = subprocess.Popen(
-            cmd,
-            cwd=self.workspace,
-            stdin=slave_fd,
-            stdout=slave_fd,
-            stderr=slave_fd,
-            close_fds=True
-        )
+    async def setup_workspace(self):
+        """Set up the workspace with comprehensive learning environment"""
+        try:
+            # Create realistic directory structure
+            directories = [
+                "Documents", "Downloads", "Desktop", "Pictures", "Music", "Videos",
+                "projects", "scripts", "logs", "config", "tmp", "backup"
+            ]
+            
+            for directory in directories:
+                await sync_to_async(os.makedirs)(os.path.join(self.workspace, directory), exist_ok=True)
+            
+            # Create sample files for learning
+            files_to_create = [
+                f("welcome.txt", """Welcome to LearnLinux Terminal!
+=================================
+
+This is a comprehensive Linux learning environment where you can practice commands safely.
+
+Try these commands to get started:
+- ls -la          : List files with details
+- pwd             : Show current directory
+- cd Documents    : Change to Documents directory
+- cat welcome.txt : View this file
+- mkdir myproject : Create a new directory
+- touch newfile.txt : Create an empty file
+- cp welcome.txt backup/ : Copy files
+- mv newfile.txt Documents/ : Move files
+- find . -name "*.txt" : Find text files
+- grep "Linux" welcome.txt : Search in files
+- head -5 sample.log : View first 5 lines
+- tail -f sample.log : Monitor file changes
+- ps aux          : Show running processes
+- top             : System monitor
+- df -h           : Disk usage
+- free -m         : Memory usage
+
+Programming and Development:
+- python3 --version : Check Python version
+- python3 hello.py  : Run Python scripts
+- vim hello.py      : Edit files with vim
+- nano hello.py     : Edit files with nano
+- gcc hello.c -o hello : Compile C programs
+- git init          : Initialize git repository
+
+Network and System:
+- ping google.com   : Test network connectivity
+- wget https://example.com : Download files
+- curl -I google.com : Check HTTP headers
+- netstat -tulpn    : Show network connections
+
+Have fun learning Linux!
+"""),
+                ("Documents/notes.txt", "These are my study notes.\nLinux is powerful and fun to learn!"),
+                ("Documents/todo.txt", "TODO:\n- Learn more Linux commands\n- Practice shell scripting\n- Explore system administration"),
+                ("projects/hello.py", """#!/usr/bin/env python3
+print("Hello, Linux World!")
+print("Python version:", end=" ")
+import sys
+print(sys.version)
+"""),
+                ("projects/hello.c", """#include <stdio.h>
+
+int main() {
+    printf("Hello, Linux World from C!\\n");
+    return 0;
+}
+"""),
+                ("projects/hello.sh", """#!/bin/bash
+echo "Hello from a shell script!"
+echo "Current directory: $(pwd)"
+echo "Current user: $(whoami)"
+echo "System date: $(date)"
+"""),
+                ("scripts/backup.sh", """#!/bin/bash
+# Simple backup script example
+echo "Creating backup..."
+mkdir -p backup/$(date +%Y-%m-%d)
+echo "Backup created in backup/$(date +%Y-%m-%d)"
+"""),
+                ("logs/sample.log", f"""{datetime.now()} INFO: System started
+{datetime.now()} INFO: User logged in
+{datetime.now()} WARNING: High memory usage detected
+{datetime.now()} INFO: Backup completed successfully
+{datetime.now()} ERROR: Failed to connect to database
+{datetime.now()} INFO: Database connection restored
+"""),
+                ("logs/sample.log", f"""{datetime.now()} INFO: Application running normally
+"""),
+                ("config/app.conf", """# Sample configuration file
+[database]
+host=localhost
+port=5432
+name=myapp
+
+[logging]
+level=INFO
+file=/var/log/app.log
+
+[security]
+ssl_enabled=true
+timeout=30
+""")
+            ]
+            
+            for filename, content in files_to_create:
+                filepath = os.path.join(self.workspace, filename)
+                # Create directory if it doesn't exist
+                os.makedirs(os.path.dirname(filepath), exist_ok=True)
+                with open(filepath, 'w') as f:
+                    f.write(content)
+            
+            # Make shell scripts executable
+            script_files = [
+                os.path.join(self.workspace, "projects/hello.sh"),
+                os.path.join(self.workspace, "scripts/backup.sh")
+            ]
+            for script in script_files:
+                if os.path.exists(script):
+                    os.chmod(script, 0o755)
+                    
+            logger.info(f"Workspace setup completed with comprehensive learning environment")
+            
+        except Exception as e:
+            logger.error(f"Failed to setup workspace: {e}")
+
+    def spawn_sandbox_shell(self):
+        """Spawn a shell in the workspace with sandboxing (flexible for different environments)"""
+        # Try different shells in order of preference
+        shells_to_try = [
+            "/bin/bash",
+            "/usr/bin/bash",
+            "/bin/sh",
+            "/usr/bin/sh"
+        ]
         
-        os.close(slave_fd)
-        return master_fd, proc
+        for shell in shells_to_try:
+            if os.path.exists(shell):
+                logger.info(f"Using shell: {shell}")
+                if 'bash' in shell:
+                    argv = [shell, '-i']  # Interactive mode for bash
+                else:
+                    argv = [shell]
+                
+                # Try firejail first, fallback to direct execution in development
+                if self.use_firejail and shutil.which("firejail"):
+                    try:
+                        cmd = build_firejail_cmd(self.workspace, argv)
+                        logger.info(f"Attempting firejail command: {' '.join(cmd[:5])}...")
+                        return self._spawn_pty_process(cmd, self.workspace)
+                    except Exception as e:
+                        logger.warning(f"Firejail failed for {shell}: {e}")
+                        # In development, fall back to direct execution
+                        if os.getenv('DJANGO_DEVELOPMENT', 'False').lower() == 'true':
+                            logger.warning("Development mode: falling back to direct shell execution")
+                            cmd = argv
+                            return self._spawn_pty_process(cmd, self.workspace)
+                        else:
+                            # In production, security is mandatory
+                            logger.error("Production mode: firejail is required for security")
+                            raise RuntimeError(f"Security sandbox failed: {e}")
+                else:
+                    # Direct execution (for development only)
+                    if os.getenv('DJANGO_DEVELOPMENT', 'False').lower() == 'true':
+                        logger.warning("Development mode: running shell without firejail")
+                        cmd = argv
+                        return self._spawn_pty_process(cmd, self.workspace)
+                    else:
+                        logger.error("Production mode requires firejail for security")
+                        raise RuntimeError("Security sandbox is mandatory in production")
+        
+        raise RuntimeError("No suitable shell found")
+
+    def _spawn_pty_process(self, cmd, cwd):
+        """Common method to spawn a process with PTY"""
+        master_fd = None
+        slave_fd = None
+        
+        try:
+            master_fd, slave_fd = pty.openpty()
+            
+            # Set master_fd to non-blocking
+            flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
+            fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+
+            # Set up environment
+            env = os.environ.copy()
+            env.update({
+                'PS1': r'\$ ',  # Simple prompt to reduce control sequences
+                'TERM': 'linux',  # Better terminal type for compatibility
+                'HOME': self.workspace,
+                'USER': os.environ.get('USER', 'learner'),
+                'SHELL': cmd[0],
+                'LANG': 'C.UTF-8',  # Use C locale to avoid encoding issues
+                'LC_ALL': 'C.UTF-8',  # Use C locale to avoid encoding issues
+                'PATH': '/usr/local/bin:/usr/bin:/bin',
+                # Disable shell initialization files that might cause issues
+                'BASH_ENV': '/dev/null',
+                'ENV': '/dev/null',
+                'HISTFILE': '/dev/null',  # Disable history to avoid file access issues
+                'HISTSIZE': '0',
+                'HISTFILESIZE': '0',
+                # Disable shell integration features
+                'PROMPT_COMMAND': '',
+                'HISTCONTROL': 'ignoreboth',
+                # Disable bracketed paste mode
+                'TERM_PROGRAM': '',
+                'ITERM_SESSION_ID': '',
+                'COLORTERM': 'true',
+                # Terminal size
+                'COLUMNS': '80',
+                'LINES': '24',
+            })
+
+            def preexec_function():
+                os.setsid()
+                try:
+                    os.tcsetpgrp(0, os.getpid())
+                except OSError:
+                    pass  # Ignore if not supported
+            
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    cwd=cwd,
+                    stdin=slave_fd,
+                    stdout=slave_fd,
+                    stderr=slave_fd,
+                    close_fds=True,
+                    env=env,
+                    preexec_fn=preexec_function
+                )
+                
+                # Close slave_fd in parent process
+                os.close(slave_fd)
+                slave_fd = None
+                
+                # Give the process a moment to initialize
+                import time
+                time.sleep(1)  # Increased delay for better initialization
+                
+                # Check if process is still running after initialization
+                if proc.poll() is not None:
+                    stdout, stderr = proc.communicate()
+                    error_msg = f"Process died immediately after initialization with return code {proc.returncode}"
+                    if stderr:
+                        error_msg += f"\nStderr: {stderr.decode('utf-8', errors='replace')}"
+                    if stdout:
+                        error_msg += f"\nStdout: {stdout.decode('utf-8', errors='replace')}"
+                    logger.error(error_msg)
+                    raise RuntimeError(error_msg)
+                
+                logger.info(f"Process started successfully with PID: {proc.pid}")
+                return master_fd, proc
+                
+            except Exception as e:
+                logger.error(f"Failed to start process: {e}")
+                if proc:
+                    try:
+                        proc.terminate()
+                        proc.wait(timeout=5)
+                    except:
+                        try:
+                            proc.kill()
+                        except:
+                            pass
+                raise e
+                
+        except Exception as e:
+            logger.error(f"Failed to create PTY: {e}")
+            # Clean up file descriptors if they were created
+            if slave_fd is not None:
+                try:
+                    os.close(slave_fd)
+                except:
+                    pass
+            if master_fd is not None:
+                try:
+                    os.close(master_fd)
+                except:
+                    pass
+            raise e
 
     async def read_output(self):
-        """Async method to read output from the terminal"""
-        while self.reader_running:
+        """Enhanced async method to read output from the terminal"""
+        buffer = b""
+        consecutive_empty_reads = 0
+        
+        while self.reader_running and self.master_fd is not None:
             try:
-                # Use sync_to_async to make the blocking read non-blocking in async context
-                data = await sync_to_async(self.read_from_fd)()
-                if data:
-                    output = data.decode(errors='ignore')
-                    logger.debug(f"Received data from shell: {output}")
-                    await self.send(text_data=json.dumps({"output": output}))
+                # Use select to check if data is available
+                ready, _, _ = await sync_to_async(select.select)([self.master_fd], [], [], 0.1)
+                
+                if ready:
+                    try:
+                        data = await sync_to_async(os.read)(self.master_fd, 4096)
+                        if data:
+                            buffer += data
+                            consecutive_empty_reads = 0
+                            
+                            # Process buffer for complete lines
+                            while buffer:
+                                try:
+                                    # Try to decode the entire buffer
+                                    output = buffer.decode('utf-8', errors='replace')
+                                    
+                                    # Process output for better readability
+                                    if output:
+                                        formatted_output = self.format_terminal_output(output)
+                                        if formatted_output.strip():  # Only send non-empty content
+                                            message_data = json.dumps({"type": "output", "data": formatted_output})
+                                            logger.debug(f"Sending output message: {repr(message_data)}")
+                                            await self.send(text_data=message_data)
+                                        buffer = b""
+                                        break
+                                except UnicodeDecodeError:
+                                    # If we can't decode, try to find a valid UTF-8 sequence
+                                    for i in range(len(buffer) - 1, 0, -1):
+                                        try:
+                                            partial = buffer[:i].decode('utf-8')
+                                            formatted_output = self.format_terminal_output(partial)
+                                            if formatted_output.strip():
+                                                await self.send(text_data=json.dumps({"type": "output", "data": formatted_output}))
+                                            buffer = buffer[i:]
+                                            break
+                                        except UnicodeDecodeError:
+                                            continue
+                                    else:
+                                        # If no valid sequence found, skip one byte and try again
+                                        buffer = buffer[1:]
+                        else:
+                            # EOF reached
+                            consecutive_empty_reads += 1
+                            if consecutive_empty_reads > 10:  # Stop after multiple empty reads
+                                break
+                            
+                    except (OSError, IOError) as e:
+                        if e.errno == errno.EIO:  # End of file
+                            logger.info("Terminal process ended (EIO)")
+                            break
+                        elif e.errno == errno.EAGAIN:  # Resource temporarily unavailable
+                            continue
+                        else:
+                            logger.error(f"Error reading from terminal: {e}")
+                            break
                 else:
-                    # Small delay to prevent busy waiting
-                    await asyncio.sleep(0.01)
+                    # No data available, small delay to prevent busy waiting
+                    await asyncio.sleep(0.05)
+                    
+                    # Check if process is still alive
+                    if hasattr(self, 'proc') and self.proc and self.proc.poll() is not None:
+                        logger.info(f"Terminal process exited with code: {self.proc.returncode}")
+                        break
+                    
             except Exception as e:
-                logger.error(f"Error reading from terminal: {e}")
+                logger.error(f"Error in read_output loop: {e}")
                 break
-
-    def read_from_fd(self):
-        """Synchronous method to read from file descriptor"""
+        
+        logger.info("Terminal output reader stopped")
+        
+        # Send final message to client
         try:
-            return os.read(self.master_fd, 1024)
-        except BlockingIOError:
-            # No data available right now
-            return None
-        except OSError as e:
-            logger.error(f"OSError reading from fd: {e}")
-            return None
+            await self.send(text_data=json.dumps({"type": "output", "data": "\nTerminal session ended.\n"}))
+        except Exception as e:
+            logger.warning(f"Could not send final message: {e}")
+
+    def format_terminal_output(self, output):
+        """Format terminal output for better readability"""
+        if not output:
+            return output
+            
+        # Remove common terminal escape sequences that cause formatting issues
+        import re
+        
+        # Clean output while preserving ANSI color codes
+        formatted = output
+        
+        # Remove terminal title sequences
+        formatted = re.sub(r'\x1b\]0;[^\x07]*\x07', '', formatted)
+        
+        # Remove OSC (Operating System Command) sequences
+        formatted = re.sub(r'\x1b\][\d;]*[^\x07\x1b]*(?:\x07|\x1b\\)', '', formatted)
+        
+        # Remove terminal control sequences like ]133;A\, ]133;B\, ]133;C\, ]133;D;
+        formatted = re.sub(r'\]133;[A-Z];?[^\\]*\\', '', formatted)
+        formatted = re.sub(r'\]133;[A-Z][^\\]*\\', '', formatted)
+        
+        # Remove file:// URL sequences
+        formatted = re.sub(r'\]7;file://[^\\]*\\', '', formatted)
+        
+        # Remove bracketed paste mode sequences
+        formatted = re.sub(r'\[\?2004[hl]', '', formatted)
+        
+        # Remove cursor positioning that might cause issues
+        formatted = re.sub(r'\x1b\[H', '', formatted)
+        formatted = re.sub(r'\x1b\[2J', '', formatted)
+        
+        # Remove excessive control characters but preserve basic ones
+        formatted = re.sub(r'[\x00-\x08\x0E-\x1F\x7F]', '', formatted)
+        
+        # Clean up JSON input artifacts
+        formatted = re.sub(r'\{"input":"[^"]*"\}', '', formatted)
+        
+        # Clean up excessive whitespace but preserve intentional spacing
+        lines = formatted.split('\n')
+        cleaned_lines = []
+        
+        for line in lines:
+            # Remove trailing whitespace but preserve leading indentation
+            cleaned_line = line.rstrip()
+            
+            # Skip lines that are just control sequences or artifacts
+            if cleaned_line and not re.match(r'^[\[\]\\0-9;A-Za-z]*$', cleaned_line):
+                cleaned_lines.append(cleaned_line)
+            elif cleaned_line and len(cleaned_line) > 10:  # Keep longer lines even if they might have some control chars
+                cleaned_lines.append(cleaned_line)
+        
+        # Join lines back together
+        result = '\n'.join(cleaned_lines)
+        
+        # Remove duplicate newlines but preserve intentional paragraph breaks
+        result = re.sub(r'\n{3,}', '\n\n', result)
+        
+        # Final cleanup - remove lines that are just artifacts
+        result = re.sub(r'\n\s*\n\s*\n', '\n\n', result)
+        
+        return result.strip()
 
     async def receive(self, text_data=None, bytes_data=None):
         try:
-            data = json.loads(text_data) if text_data else {}
-            command = data.get("input", "")
+            if not text_data:
+                return
+                
+            logger.debug(f"Received raw message: {repr(text_data)}")
             
-            # Echo the command back to the client
-            await self.send(text_data=json.dumps({"echo": command}))
+            # Handle both JSON and plain text input for compatibility
+            try:
+                data = json.loads(text_data)
+                command = data.get("input", "")
+                logger.debug(f"Parsed JSON message: {data}")
+            except json.JSONDecodeError:
+                # If it's not JSON, treat it as a direct command
+                command = text_data.strip()
+                logger.debug(f"Treated as plain text command: {repr(command)}")
+            
+            if not command:
+                return
 
-            if command:
-                logger.debug(f"Sending command to shell: {command}")
-                # Add newline to execute the command
-                command_with_newline = command + "\n"
-                await sync_to_async(os.write)(self.master_fd, command_with_newline.encode())
+            logger.debug(f"Final command to execute: {repr(command)}")
+            
+            # CRITICAL SECURITY CHECK: Validate command before execution
+            if not self.is_command_allowed(command):
+                error_msg = f"Command '{command}' is not allowed for security reasons"
+                logger.warning(f"Blocked dangerous command: {repr(command)}")
+                await self.send(text_data=json.dumps({"type": "error", "data": error_msg}))
+                return
+            
+            # Check if process is still alive
+            if not hasattr(self, 'proc') or not self.proc or self.proc.poll() is not None:
+                await self.send(text_data=json.dumps({"type": "error", "data": "Terminal process is not running"}))
+                return
+            
+            # Check if master_fd is still valid
+            if not hasattr(self, 'master_fd') or self.master_fd is None:
+                await self.send(text_data=json.dumps({"type": "error", "data": "Terminal connection is not available"}))
+                return
+            
+            # Send the command to the terminal
+            try:
+                command_bytes = (command + "\n").encode('utf-8')
+                await sync_to_async(os.write)(self.master_fd, command_bytes)
+                logger.debug(f"Command sent to terminal: {repr(command)}")
+            except OSError as e:
+                logger.error(f"Failed to write to terminal: {e}")
+                await self.send(text_data=json.dumps({"type": "error", "data": f"Failed to send command: {str(e)}"}))
                 
         except Exception as e:
             logger.error(f"Error processing command: {e}")
-            await self.send(text_data=json.dumps({"error": str(e)}))
+            try:
+                await self.send(text_data=json.dumps({"type": "error", "data": f"Command processing error: {str(e)}"}))
+            except Exception as send_error:
+                logger.error(f"Failed to send error message: {send_error}")
+            # Don't close the connection on command processing errors
+            return
 
     async def disconnect(self, close_code):
         logger.info(f"Terminal disconnecting with code: {close_code}")
         self.reader_running = False
         
-        try:
-            if hasattr(self, 'proc'):
+        # Close the master file descriptor first to stop the reader
+        if hasattr(self, 'master_fd') and self.master_fd is not None:
+            try:
+                os.close(self.master_fd)
+                logger.debug("Master file descriptor closed")
+            except Exception as e:
+                logger.warning(f"Error closing master_fd: {e}")
+            finally:
+                self.master_fd = None
+        
+        # Wait a moment for the reader to stop
+        await asyncio.sleep(0.2)
+        
+        # Then terminate the process
+        if hasattr(self, 'proc') and self.proc:
+            try:
+                # Try graceful termination first
                 self.proc.terminate()
                 try:
-                    self.proc.wait(timeout=1)
-                except subprocess.TimeoutExpired:
+                    await sync_to_async(self.proc.wait)(timeout=5)
+                    logger.debug("Process terminated gracefully")
+                except (subprocess.TimeoutExpired, asyncio.TimeoutError):
+                    # Force kill if graceful termination fails
+                    logger.warning("Graceful termination failed, force killing process")
                     self.proc.kill()
-                    
-            if hasattr(self, 'master_fd'):
-                os.close(self.master_fd)
-                
-        except Exception as e:
-            logger.error(f"Error during cleanup: {e}")
-        finally:
-            if hasattr(self, 'workspace'):
-                shutil.rmtree(self.workspace, ignore_errors=True)
+                    try:
+                        await sync_to_async(self.proc.wait)(timeout=2)
+                        logger.debug("Process killed successfully")
+                    except:
+                        logger.warning("Failed to confirm process termination")
+            except Exception as e:
+                logger.error(f"Error terminating process: {e}")
+            finally:
+                self.proc = None
+        
+        # Clean up workspace
+        if hasattr(self, 'workspace') and self.workspace:
+            try:
+                await sync_to_async(shutil.rmtree)(self.workspace, ignore_errors=True)
+                logger.debug(f"Workspace cleaned up: {self.workspace}")
+            except Exception as e:
+                logger.error(f"Error cleaning up workspace: {e}")
+        
+        logger.info("Terminal cleanup completed")

@@ -1,6 +1,7 @@
-// Terminal state management hook
+// Enhanced terminal state management hook with better ANSI handling
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { MAX_OUTPUT_LINES } from '../utils/constants';
+import { parseAnsi, stripAnsi } from '../utils/ansiParser';
 
 const useTerminalState = () => {
   const [lines, setLines] = useState([]);
@@ -17,35 +18,70 @@ const useTerminalState = () => {
   const addOutput = useCallback((output, type = 'output') => {
     if (!output && output !== '') return;
 
-    const newLine = {
-      id: generateLineId(),
-      content: output,
-      type: type, // 'output', 'input', 'prompt', 'error'
-      timestamp: new Date()
-    };
+    // Handle control sequences that might clear the screen
+    const segments = parseAnsi(output);
+    const hasScreenClear = segments.some(seg => seg.controls?.clearScreen);
 
-    setLines(prevLines => {
-      const updatedLines = [...prevLines, newLine];
-      // Limit the number of lines to prevent memory issues
-      if (updatedLines.length > MAX_OUTPUT_LINES) {
-        return updatedLines.slice(-MAX_OUTPUT_LINES);
+    if (hasScreenClear) {
+      // Clear the screen and continue with remaining output
+      setLines([]);
+      const cleanOutput = stripAnsi(output.replace(/\x1b\[2J|\x1b\[H\x1b\[2J/g, ''));
+      if (cleanOutput.trim()) {
+        const newLine = {
+          id: generateLineId(),
+          content: cleanOutput,
+          type: type,
+          timestamp: new Date()
+        };
+        setLines([newLine]);
       }
-      return updatedLines;
+      return;
+    }
+
+    // Split output by newlines to create separate lines
+    const outputLines = output.split('\n');
+    
+    const newLines = [];
+    
+    outputLines.forEach((lineContent, index) => {
+      // Skip empty last line from splitting
+      if (index === outputLines.length - 1 && lineContent === '') return;
+      
+      const newLine = {
+        id: generateLineId(),
+        content: lineContent,
+        type: type,
+        timestamp: new Date()
+      };
+      newLines.push(newLine);
     });
 
-    // Auto-scroll to bottom if user was already at bottom
-    if (isAtBottom) {
-      setTimeout(() => {
-        const terminalOutput = document.querySelector('.terminal-output');
-        if (terminalOutput) {
-          terminalOutput.scrollTop = terminalOutput.scrollHeight;
+    if (newLines.length > 0) {
+      setLines(prevLines => {
+        const updatedLines = [...prevLines, ...newLines];
+        // Limit the number of lines to prevent memory issues
+        if (updatedLines.length > MAX_OUTPUT_LINES) {
+          return updatedLines.slice(-MAX_OUTPUT_LINES);
         }
-      }, 0);
+        return updatedLines;
+      });
+
+      // Auto-scroll to bottom if user was already at bottom
+      if (isAtBottom) {
+        setTimeout(() => {
+          const terminalOutput = document.querySelector('.terminal-output');
+          if (terminalOutput) {
+            terminalOutput.scrollTop = terminalOutput.scrollHeight;
+          }
+        }, 10);
+      }
     }
   }, [isAtBottom]);
 
-  const addPrompt = useCallback((prompt = 'user@terminal:~$ ') => {
-    addOutput(prompt, 'prompt');
+  const addPrompt = useCallback((prompt) => {
+    if (prompt && prompt.trim()) {
+      addOutput(prompt, 'prompt');
+    }
   }, [addOutput]);
 
   const clearScreen = useCallback(() => {
@@ -114,8 +150,8 @@ const useTerminalState = () => {
 
   const executeCommand = useCallback((command) => {
     if (command.trim()) {
-      // Add the command to output as an input line
-      addOutput(`$ ${command}`, 'input');
+      // Don't echo the command here - let the backend handle it
+      // Just clear the current line
     }
     
     // Clear current line after execution
@@ -123,7 +159,7 @@ const useTerminalState = () => {
     setCursorPosition(0);
     
     return command.trim();
-  }, [addOutput]);
+  }, []);
 
   // Handle scroll position tracking
   const handleScroll = useCallback((scrollTop, scrollHeight, clientHeight) => {
@@ -141,9 +177,20 @@ const useTerminalState = () => {
   }, []);
 
   // Auto-scroll when new content is added and user is at bottom
+  // Use ref to avoid re-triggering effect on every scroll
+  const linesLengthRef = useRef(lines.length);
+  
   useEffect(() => {
-    if (isAtBottom && lines.length > 0) {
-      scrollToBottom();
+    // Only trigger scroll if lines actually changed
+    if (linesLengthRef.current !== lines.length) {
+      linesLengthRef.current = lines.length;
+      
+      if (isAtBottom && lines.length > 0) {
+        const timer = setTimeout(() => {
+          scrollToBottom();
+        }, 50);
+        return () => clearTimeout(timer);
+      }
     }
   }, [lines.length, isAtBottom, scrollToBottom]);
 
