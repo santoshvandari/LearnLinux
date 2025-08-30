@@ -81,9 +81,6 @@ USER appuser
 # Expose port
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python manage.py check || exit 1
 
 # Run with daphne
 CMD ["daphne", "-b", "0.0.0.0", "-p", "8000", "core.asgi:application"]
