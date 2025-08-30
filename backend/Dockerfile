@@ -3,12 +3,27 @@ FROM python:3.11-slim
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    DJANGO_DEVELOPMENT=False \
+    DJANGO_SETTINGS_MODULE=core.settings
 
-# Install system dependencies
+# Install system dependencies and learning tools
 RUN apt-get update && apt-get install -y \
+    # Essential tools
+    curl wget git vim nano \
+    # System tools
+    htop tree file less procps \
+    # Network tools  
+    iputils-ping iproute2 dnsutils net-tools \
+    # Text processing
+    jq grep sed gawk \
+    # Compression tools
+    zip unzip gzip \
+    # Optional: firejail for additional isolation layer
     firejail \
-    && rm -rf /var/lib/apt/lists/*
+    # Clean up
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # Create app directory
 WORKDIR /app
@@ -33,30 +48,25 @@ RUN mkdir -p /tmp/terminal_sessions && \
     chown appuser:appuser /tmp/terminal_sessions && \
     chmod 755 /tmp/terminal_sessions
 
-# Create secure firejail profile with strict restrictions
+# Create secure firejail profile with balanced restrictions - more permissive for learning
 RUN echo 'caps.drop all\n\
 seccomp\n\
 net none\n\
 noroot\n\
 private-tmp\n\
 private-dev\n\
-private-etc\n\
-timeout 300\n\
+timeout 3600\n\
 blacklist /home\n\
 blacklist /root\n\
-blacklist /etc\n\
-blacklist /var\n\
-blacklist /opt\n\
-blacklist /media\n\
-blacklist /mnt\n\
-blacklist /usr/bin\n\
-blacklist /bin\n\
-blacklist /sbin\n\
-private-bin sh,bash,ls,pwd,cat,mkdir,rmdir,rm,touch,echo,whoami,id,ps,grep,find,head,tail,wc,sort,uniq\n\
+blacklist /boot\n\
+blacklist /sys\n\
+blacklist /proc/sys\n\
+private-bin sh,bash,ls,pwd,cat,mkdir,rmdir,rm,touch,echo,whoami,id,ps,grep,find,head,tail,wc,sort,uniq,cp,mv,chmod,chown,ln,file,which,type,man,less,more,tree,du,df,free,top,htop,kill,killall,python,python3,pip,pip3,node,npm,gcc,g++,make,vim,vi,nano,emacs,git,curl,wget,tar,gzip,gunzip,zip,unzip,awk,sed,cut,tr,basename,dirname,date,cal,uptime,uname,history,alias,unalias,jobs,fg,bg,sleep,ping,nslookup,dig,netstat,ss,lsof\n\
 read-only /usr/lib\n\
 read-only /lib\n\
-rlimit-nproc 10\n\
-rlimit-fsize 10485760\n\
+rlimit-nproc 50\n\
+rlimit-fsize 104857600\n\
+rlimit-as 1073741824\n\
 nonewprivs\n\
 nosound\n\
 nodvd\n\

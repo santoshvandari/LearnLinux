@@ -25,15 +25,39 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 def build_firejail_cmd(work_dir, argv):
-    """Build firejail command with STRICT security restrictions using profile"""
+    """Build firejail command with appropriate security restrictions"""
     cmd = [
-        "firejail", 
-        "--profile=/etc/firejail/terminal.profile",  # Use the secure profile
+        "firejail",
         f"--private={work_dir}",  # Private filesystem - ONLY access to work_dir
         f"--whitelist={work_dir}", # ONLY allow access to the workspace
-        "--", 
-        *argv
+        "--noroot",               # No root access
+        "--nosound",              # No sound access
+        "--no3d",                 # No 3D acceleration
+        "--nodvd",                # No DVD access
+        "--nogroups",             # No supplementary groups
+        "--nonewprivs",           # No new privileges
+        "--noprinters",           # No printer access
+        "--notv",                 # No TV access
+        "--nou2f",                # No U2F access
+        "--novideo",              # No video devices
+        "--seccomp",              # Enable seccomp
+        "--caps.drop=all",        # Drop all capabilities
+        "--shell=none",           # No shell access to parent
+        "--rlimit-as=1000000000", # Limit virtual memory to 1GB
+        "--rlimit-cpu=3600",      # Limit CPU time to 1 hour
+        "--rlimit-fsize=100000000", # Limit file size to 100MB
+        "--rlimit-nproc=50",      # Limit number of processes
+        "--timeout=01:00:00",     # 1 hour timeout
     ]
+    
+    # Add profile if it exists (production environment)
+    if os.path.exists('/etc/firejail/terminal.profile'):
+        cmd.insert(1, '--profile=/etc/firejail/terminal.profile')
+    else:
+        # Add network restriction only in development (profile handles this in production)
+        cmd.append("--net=none")
+    
+    cmd.extend(["--", *argv])
     return cmd
 
 def build_simple_cmd(work_dir, argv):
@@ -102,7 +126,7 @@ class TerminalConsumer(AsyncWebsocketConsumer):
             await self.close()
 
     def is_command_allowed(self, command):
-        """Check if a command is allowed for security"""
+        """Check if a command is allowed - permissive approach since we're in Docker containers"""
         # Remove leading/trailing whitespace and split command
         cmd_parts = command.strip().split()
         if not cmd_parts:
@@ -110,75 +134,236 @@ class TerminalConsumer(AsyncWebsocketConsumer):
             
         base_cmd = cmd_parts[0].lower()
         
-        # Whitelist of allowed commands
-        allowed_commands = {
-            'ls', 'pwd', 'cd', 'cat', 'echo', 'whoami', 'id', 'ps', 'grep', 'find',
-            'head', 'tail', 'wc', 'sort', 'uniq', 'mkdir', 'rmdir', 'rm', 'touch',
-            'cp', 'mv', 'clear', 'help', 'man', 'which', 'type', 'file', 'du', 'df',
-            'date', 'uptime', 'history', 'alias', 'unalias', 'jobs', 'fg', 'bg'
+        # Critical system commands that could affect container security
+        strictly_forbidden = {
+            'sudo', 'su', 'passwd',  # User/privilege escalation
+            'mount', 'umount',       # Filesystem mounting
+            'chroot', 'unshare',     # Container escape attempts
+            'nsenter', 'setns',      # Namespace manipulation
+            'reboot', 'shutdown', 'halt', 'poweroff',  # System control
+            'init', 'systemctl', 'service',  # System services
+            'iptables', 'ufw', 'firewall-cmd',  # Firewall manipulation
+            'modprobe', 'insmod', 'rmmod',  # Kernel module manipulation
+            'sysctl',  # Kernel parameters
         }
         
-        # Blacklist of dangerous commands
-        dangerous_commands = {
-            'sudo', 'su', 'passwd', 'mount', 'umount', 'fdisk', 'mkfs', 'fsck',
-            'dd' , 'ssh', 'scp', 'rsync', 'nc', 'netcat', 'telnet',
-            'ftp', 'sftp', 'ping', 'traceroute', 'nslookup', 'dig', 'iptables',
-            'systemctl', 'service', 'chroot', 'docker', 'lxc', 'kvm', 'qemu',
-            'gcc', 'make', 'cmake', 'python', 'python3', 'node', 'npm', 'pip',
-            'apt', 'yum', 'dnf', 'pacman', 'zypper', 'emerge', 'brew', 'snap',
-            'flatpak', 'appimage', 'chmod', 'chown', 'chgrp', 'setuid', 'setgid',
-            'crontab', 'at', 'batch', 'nohup', 'screen', 'tmux', 'vim', 'nano',
-            'emacs', 'vi', 'ed', 'sed', 'awk', 'perl', 'ruby', 'php', 'java',
-            'javac', 'julia', 'go', 'rust', 'cargo', 'git', 'svn', 'hg', 'bzr'
+        # Network commands that could be used for attacks
+        network_restricted = {
+            'ssh', 'scp', 'rsync',   # Remote access (allow if needed for learning)
+            'nc', 'netcat', 'ncat',  # Raw network connections
+            'telnet', 'ftp', 'tftp', # Insecure protocols
+            'wget', 'curl',          # Allow but monitor - useful for learning
         }
         
-        # Check for dangerous commands first
-        if base_cmd in dangerous_commands:
+        # Development tools - allow since they're useful for learning
+        dev_tools_allowed = {
+            'python', 'python3', 'node', 'npm', 'pip', 'pip3',
+            'gcc', 'g++', 'clang', 'make', 'cmake',
+            'java', 'javac', 'scala', 'kotlin',
+            'go', 'rust', 'cargo', 'rustc',
+            'ruby', 'gem', 'php', 'perl',
+            'julia', 'r', 'octave',
+            'git', 'svn', 'hg', 'bzr'  # Version control
+        }
+        
+        # Text editors - allow for learning
+        editors_allowed = {
+            'vim', 'vi', 'nano', 'emacs', 'ed',
+            'micro', 'joe', 'pico'
+        }
+        
+        # System monitoring - useful for learning
+        monitoring_allowed = {
+            'top', 'htop', 'ps', 'pstree', 'jobs', 'fg', 'bg',
+            'kill', 'killall', 'pkill', 'pgrep',
+            'free', 'df', 'du', 'lsof', 'netstat', 'ss',
+            'iostat', 'vmstat', 'sar', 'mpstat'
+        }
+        
+        # Package managers - restrict to prevent container pollution
+        package_managers = {
+            'apt', 'apt-get', 'aptitude', 'dpkg',
+            'yum', 'dnf', 'rpm', 'zypper',
+            'pacman', 'emerge', 'portage',
+            'brew', 'snap', 'flatpak', 'appimage'
+        }
+        
+        # Check for strictly forbidden commands
+        if base_cmd in strictly_forbidden:
+            logger.warning(f"Blocked strictly forbidden command: {base_cmd}")
             return False
-            
-        # Check for path traversal attempts
-        if '..' in command or command.startswith('/'):
+        
+        # Block package managers to prevent container modification
+        if base_cmd in package_managers:
+            logger.warning(f"Blocked package manager command: {base_cmd}")
             return False
-            
-        # Check for command chaining/injection
-        dangerous_chars = ['&', '|', ';', '`', '$', '>', '<', '*', '?', '[', ']', '{', '}']
-        if any(char in command for char in dangerous_chars):
+        
+        # Allow network tools but log them (useful for learning)
+        if base_cmd in network_restricted:
+            logger.info(f"Allowing monitored network command: {base_cmd}")
+            # You could add additional validation here if needed
+            return True
+        
+        # Check for dangerous file system access patterns
+        # Block access to sensitive system directories
+        sensitive_paths = ['/etc/passwd', '/etc/shadow', '/etc/sudoers', '/root', '/boot', '/sys', '/proc/sys']
+        if any(path in command for path in sensitive_paths):
+            logger.warning(f"Blocked access to sensitive path in command: {command}")
             return False
-            
-        # Allow only whitelisted commands
-        return base_cmd in allowed_commands
+        
+        # Check for command injection attempts - more permissive approach
+        # Allow basic shell features but block dangerous ones
+        dangerous_patterns = [
+            'rm -rf /', 'rm -rf /usr', 'rm -rf /var', 'rm -rf /etc',  # Destructive rm
+            '>(', '<(',  # Process substitution
+            'eval ', 'exec ',  # Code execution
+            'curl.*|.*sh', 'wget.*|.*sh',  # Download and execute patterns
+            'chmod.*777', 'chmod.*+s',  # Dangerous permission changes
+        ]
+        
+        for pattern in dangerous_patterns:
+            if pattern in command.lower():
+                logger.warning(f"Blocked dangerous pattern '{pattern}' in command: {command}")
+                return False
+        
+        # Allow most commands since we're in a sandboxed Docker container
+        # This makes the terminal much more educational and useful
+        logger.debug(f"Allowing command: {base_cmd}")
+        return True
 
     async def setup_workspace(self):
-        """Set up the workspace with some basic files and directories"""
+        """Set up the workspace with comprehensive learning environment"""
         try:
-            # Create basic directory structure
-            await sync_to_async(os.makedirs)(os.path.join(self.workspace, "Documents"), exist_ok=True)
-            await sync_to_async(os.makedirs)(os.path.join(self.workspace, "Downloads"), exist_ok=True)
-            await sync_to_async(os.makedirs)(os.path.join(self.workspace, "Desktop"), exist_ok=True)
+            # Create realistic directory structure
+            directories = [
+                "Documents", "Downloads", "Desktop", "Pictures", "Music", "Videos",
+                "projects", "scripts", "logs", "config", "tmp", "backup"
+            ]
             
-            # Create a sample file
-            sample_file = os.path.join(self.workspace, "welcome.txt")
-            with open(sample_file, 'w') as f:
-                f.write("Welcome to LearnLinux!\n")
-                f.write("This is a safe sandbox environment for learning Linux commands.\n")
-                f.write("Try commands like:\n")
-                f.write("- ls (list files)\n")
-                f.write("- pwd (print working directory)\n")
-                f.write("- cat welcome.txt (view this file)\n")
-                f.write("- mkdir test (create directory)\n")
-                f.write("- touch newfile.txt (create file)\n")
+            for directory in directories:
+                await sync_to_async(os.makedirs)(os.path.join(self.workspace, directory), exist_ok=True)
+            
+            # Create sample files for learning
+            files_to_create = [
+                ("welcome.txt", """Welcome to LearnLinux Terminal!
+=================================
+
+This is a comprehensive Linux learning environment where you can practice commands safely.
+
+Try these commands to get started:
+- ls -la          : List files with details
+- pwd             : Show current directory
+- cd Documents    : Change to Documents directory
+- cat welcome.txt : View this file
+- mkdir myproject : Create a new directory
+- touch newfile.txt : Create an empty file
+- cp welcome.txt backup/ : Copy files
+- mv newfile.txt Documents/ : Move files
+- find . -name "*.txt" : Find text files
+- grep "Linux" welcome.txt : Search in files
+- head -5 sample.log : View first 5 lines
+- tail -f sample.log : Monitor file changes
+- ps aux          : Show running processes
+- top             : System monitor
+- df -h           : Disk usage
+- free -m         : Memory usage
+
+Programming and Development:
+- python3 --version : Check Python version
+- python3 hello.py  : Run Python scripts
+- vim hello.py      : Edit files with vim
+- nano hello.py     : Edit files with nano
+- gcc hello.c -o hello : Compile C programs
+- git init          : Initialize git repository
+
+Network and System:
+- ping google.com   : Test network connectivity
+- wget https://example.com : Download files
+- curl -I google.com : Check HTTP headers
+- netstat -tulpn    : Show network connections
+
+Have fun learning Linux!
+"""),
+                ("Documents/notes.txt", "These are my study notes.\nLinux is powerful and fun to learn!"),
+                ("Documents/todo.txt", "TODO:\n- Learn more Linux commands\n- Practice shell scripting\n- Explore system administration"),
+                ("projects/hello.py", """#!/usr/bin/env python3
+print("Hello, Linux World!")
+print("Python version:", end=" ")
+import sys
+print(sys.version)
+"""),
+                ("projects/hello.c", """#include <stdio.h>
+
+int main() {
+    printf("Hello, Linux World from C!\\n");
+    return 0;
+}
+"""),
+                ("projects/hello.sh", """#!/bin/bash
+echo "Hello from a shell script!"
+echo "Current directory: $(pwd)"
+echo "Current user: $(whoami)"
+echo "System date: $(date)"
+"""),
+                ("scripts/backup.sh", """#!/bin/bash
+# Simple backup script example
+echo "Creating backup..."
+mkdir -p backup/$(date +%Y-%m-%d)
+echo "Backup created in backup/$(date +%Y-%m-%d)"
+"""),
+                ("logs/sample.log", """2024-01-01 10:00:00 INFO: System started
+2024-01-01 10:01:00 INFO: User logged in
+2024-01-01 10:02:00 WARNING: High memory usage detected
+2024-01-01 10:03:00 INFO: Backup completed successfully
+2024-01-01 10:04:00 ERROR: Failed to connect to database
+2024-01-01 10:05:00 INFO: Database connection restored
+2024-01-01 10:06:00 INFO: Application running normally
+"""),
+                ("config/app.conf", """# Sample configuration file
+[database]
+host=localhost
+port=5432
+name=myapp
+
+[logging]
+level=INFO
+file=/var/log/app.log
+
+[security]
+ssl_enabled=true
+timeout=30
+""")
+            ]
+            
+            for filename, content in files_to_create:
+                filepath = os.path.join(self.workspace, filename)
+                # Create directory if it doesn't exist
+                os.makedirs(os.path.dirname(filepath), exist_ok=True)
+                with open(filepath, 'w') as f:
+                    f.write(content)
+            
+            # Make shell scripts executable
+            script_files = [
+                os.path.join(self.workspace, "projects/hello.sh"),
+                os.path.join(self.workspace, "scripts/backup.sh")
+            ]
+            for script in script_files:
+                if os.path.exists(script):
+                    os.chmod(script, 0o755)
+                    
+            logger.info(f"Workspace setup completed with comprehensive learning environment")
             
         except Exception as e:
             logger.error(f"Failed to setup workspace: {e}")
 
     def spawn_sandbox_shell(self):
-        """Spawn a shell in the workspace with MANDATORY sandboxing"""
+        """Spawn a shell in the workspace with sandboxing (flexible for different environments)"""
         # Try different shells in order of preference
         shells_to_try = [
-            "/bin/sh",
-            "/usr/bin/sh", 
             "/bin/bash",
-            "/usr/bin/bash"
+            "/usr/bin/bash",
+            "/bin/sh",
+            "/usr/bin/sh"
         ]
         
         for shell in shells_to_try:
@@ -189,19 +374,32 @@ class TerminalConsumer(AsyncWebsocketConsumer):
                 else:
                     argv = [shell]
                 
-                # ALWAYS use firejail for security - NO EXCEPTIONS
-                if self.use_firejail:
-                    cmd = build_firejail_cmd(self.workspace, argv)
+                # Try firejail first, fallback to direct execution in development
+                if self.use_firejail and shutil.which("firejail"):
                     try:
+                        cmd = build_firejail_cmd(self.workspace, argv)
+                        logger.info(f"Attempting firejail command: {' '.join(cmd[:5])}...")
                         return self._spawn_pty_process(cmd, self.workspace)
                     except Exception as e:
-                        logger.error(f"Firejail failed for {shell}: {e}")
-                        # DO NOT FALLBACK - Security is mandatory
-                        raise RuntimeError(f"Security sandbox failed: {e}")
+                        logger.warning(f"Firejail failed for {shell}: {e}")
+                        # In development, fall back to direct execution
+                        if os.getenv('DJANGO_DEVELOPMENT', 'False').lower() == 'true':
+                            logger.warning("Development mode: falling back to direct shell execution")
+                            cmd = argv
+                            return self._spawn_pty_process(cmd, self.workspace)
+                        else:
+                            # In production, security is mandatory
+                            logger.error("Production mode: firejail is required for security")
+                            raise RuntimeError(f"Security sandbox failed: {e}")
                 else:
-                    # This should NEVER happen in production
-                    logger.error("SECURITY VIOLATION: Attempting to run without sandbox!")
-                    raise RuntimeError("Security sandbox is mandatory and cannot be disabled")
+                    # Direct execution (for development only)
+                    if os.getenv('DJANGO_DEVELOPMENT', 'False').lower() == 'true':
+                        logger.warning("Development mode: running shell without firejail")
+                        cmd = argv
+                        return self._spawn_pty_process(cmd, self.workspace)
+                    else:
+                        logger.error("Production mode requires firejail for security")
+                        raise RuntimeError("Security sandbox is mandatory in production")
         
         raise RuntimeError("No suitable shell found")
 

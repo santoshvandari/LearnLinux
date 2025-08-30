@@ -1,7 +1,7 @@
 // Terminal constants and configuration
 
 // WebSocket configuration
-export const WEBSOCKET_URL = 'ws://localhost:8000/ws/terminal/';
+export const WEBSOCKET_URL = import.meta.env.VITE_WS_URL;
 export const RECONNECT_INTERVAL = 3000; // 3 seconds
 export const MAX_RECONNECT_ATTEMPTS = 5;
 

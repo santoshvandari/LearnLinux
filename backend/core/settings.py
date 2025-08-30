@@ -25,6 +25,13 @@ SECRET_KEY = 'django-insecure-cg%w7ti6j37tb*+j_&67*zmszwqol8ad)n5)kd1e%zf(t9s+qb
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False  # Set to False for production security
 
+# Development environment flag
+DEVELOPMENT = False  # Set to False in production
+
+# Export to environment for other modules
+import os
+os.environ['DJANGO_DEVELOPMENT'] = str(DEVELOPMENT)
+
 ALLOWED_HOSTS = ['localhost', '127.0.0.1', '0.0.0.0','*.render.com','*.bhandari-santosh.com.np']
 
 
