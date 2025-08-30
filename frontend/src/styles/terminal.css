@@ -1,9 +1,32 @@
 /* Terminal-specific styles with monospace font and dark theme */
 
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+    opacity: 0.1;
+  }
+  25% {
+    transform: translateY(-10px) rotate(1deg);
+    opacity: 0.3;
+  }
+  50% {
+    transform: translateY(-20px) rotate(-1deg);
+    opacity: 0.2;
+  }
+  75% {
+    transform: translateY(-15px) rotate(0.5deg);
+    opacity: 0.1;
+  }
+}
+
+.animate-float {
+  animation: float linear infinite;
+}
+
 .terminal-container {
-  @apply w-full h-full bg-black text-green-400 font-mono text-sm overflow-hidden;
-  font-family: 'Courier New', 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-  line-height: 1.2;
+  @apply w-full h-full bg-black text-green-400 font-mono text-sm overflow-hidden relative;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  line-height: 1.4;
 }
 
 .terminal-output {
