@@ -31,6 +31,9 @@ def build_firejail_cmd(work_dir, argv):
         "firejail",
         f"--private={work_dir}",  # Private filesystem - ONLY access to work_dir
         f"--whitelist={work_dir}", # ONLY allow access to the workspace
+    "--overlay",              # Virtualize writes: '/' becomes session-local overlay
+    "--private-tmp",          # Private /tmp per session
+    "--private-dev",          # Private /dev per session
         "--noroot",               # No root access
         "--nosound",              # No sound access
         "--no3d",                 # No 3D acceleration
@@ -519,6 +522,8 @@ timeout=30
         """Enhanced async method to read output from the terminal"""
         buffer = b""
         consecutive_empty_reads = 0
+        # Cap how much we send per message to avoid overwhelming the client
+        MAX_CHUNK = 8192  # bytes per WebSocket message
         
         while self.reader_running and self.master_fd is not None:
             try:
@@ -542,9 +547,16 @@ timeout=30
                                     if output:
                                         formatted_output = self.format_terminal_output(output)
                                         if formatted_output.strip():  # Only send non-empty content
-                                            message_data = json.dumps({"type": "output", "data": formatted_output})
-                                            logger.debug(f"Sending output message: {repr(message_data)}")
-                                            await self.send(text_data=message_data)
+                                            # Chunk large outputs to protect the UI and server
+                                            text = formatted_output
+                                            while text:
+                                                chunk = text[:MAX_CHUNK]
+                                                text = text[MAX_CHUNK:]
+                                                message_data = json.dumps({"type": "output", "data": chunk})
+                                                await self.send(text_data=message_data)
+                                                # Brief yield to avoid flooding
+                                                if text:
+                                                    await asyncio.sleep(0.005)
                                         buffer = b""
                                         break
                                 except UnicodeDecodeError:
@@ -554,7 +566,13 @@ timeout=30
                                             partial = buffer[:i].decode('utf-8')
                                             formatted_output = self.format_terminal_output(partial)
                                             if formatted_output.strip():
-                                                await self.send(text_data=json.dumps({"type": "output", "data": formatted_output}))
+                                                text = formatted_output
+                                                while text:
+                                                    chunk = text[:MAX_CHUNK]
+                                                    text = text[MAX_CHUNK:]
+                                                    await self.send(text_data=json.dumps({"type": "output", "data": chunk}))
+                                                    if text:
+                                                        await asyncio.sleep(0.005)
                                             buffer = buffer[i:]
                                             break
                                         except UnicodeDecodeError:
