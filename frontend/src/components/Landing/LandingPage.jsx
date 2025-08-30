@@ -241,11 +241,8 @@ const LandingPage = ({ onStartTerminal }) => {
 
         {/* Footer */}
         <footer className="text-center py-6 text-gray-500 text-sm">
-          <div className="mb-2">
-            Built with ❤️ for Linux enthusiasts
-          </div>
           <div>
-            Powered by React, Django, and WebSockets
+            Develop Using by React, Django Rest Framework, and WebSockets
           </div>
         </footer>
       </div>

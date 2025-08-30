@@ -15,9 +15,14 @@ const Terminal = ({
   onDisconnect 
 }) => {
   const terminalRef = useRef(null);
-  const [sessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+  const [sessionId] = useState(() => {
+    const id = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    console.log('Generated session ID:', id);
+    return id;
+  });
   const [hasSelection, setHasSelection] = useState(false);
   const [selectedText, setSelectedText] = useState('');
+  const lastProcessedMessageRef = useRef(null);
 
   // Initialize hooks
   const { connectionStatus, sendMessage, lastMessage, reconnect } = useWebSocket(WEBSOCKET_URL, sessionId);
@@ -46,26 +51,43 @@ const Terminal = ({
     resetNavigation
   } = useCommandHistory();
 
-  // Handle WebSocket messages
+  // Handle WebSocket messages with deduplication
   useEffect(() => {
-    if (lastMessage) {
+    if (lastMessage && lastMessage !== lastProcessedMessageRef.current) {
+      console.log('Processing new message:', lastMessage);
+      lastProcessedMessageRef.current = lastMessage;
+      
       if (lastMessage.type === 'output' && lastMessage.data) {
         // Process formatted output from backend
         const output = lastMessage.data;
         if (output && output.trim()) {
-          // Split by lines and add each line separately for better formatting
-          const lines = output.split('\n');
-          lines.forEach((line, index) => {
-            if (line || index < lines.length - 1) { // Include empty lines for spacing
-              addOutput(line, 'output');
-            }
-          });
+          // Apply additional client-side filtering for better readability
+          const cleanOutput = output
+            // Remove remaining artifacts that might have slipped through
+            .replace(/\{"input":"[^"]*"\}/g, '')
+            // Remove prompt artifacts
+            .replace(/\$\s*$/gm, '')
+            // Clean up excessive whitespace
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+            
+          if (cleanOutput) {
+            console.log('Adding output to terminal:', cleanOutput);
+            addOutput(cleanOutput, 'output');
+          }
         }
       } else if (lastMessage.output) {
         // Legacy format support
-        addOutput(lastMessage.output, 'output');
+        const cleanOutput = lastMessage.output
+          .replace(/\{"input":"[^"]*"\}/g, '')
+          .trim();
+        if (cleanOutput) {
+          console.log('Adding legacy output to terminal:', cleanOutput);
+          addOutput(cleanOutput, 'output');
+        }
       } else if (lastMessage.error || lastMessage.type === 'error') {
         const errorMsg = lastMessage.error || lastMessage.data || 'Unknown error';
+        console.log('Adding error to terminal:', errorMsg);
         addOutput(`Error: ${errorMsg}`, 'error');
       }
     }
@@ -73,6 +95,7 @@ const Terminal = ({
 
   // Handle connection status changes
   useEffect(() => {
+    console.log('Connection status changed to:', connectionStatus);
     if (connectionStatus === 'connected') {
       if (onConnect) onConnect();
     } else if (connectionStatus === 'disconnected') {
@@ -86,13 +109,18 @@ const Terminal = ({
   // Command execution handler
   const handleCommand = useCallback((command) => {
     if (command.trim()) {
+      console.log('Executing command:', command);
       addCommand(command);
       // Send command in the format expected by the backend
-      sendMessage(JSON.stringify({ input: command }));
+      const success = sendMessage(command);
+      if (!success) {
+        console.warn('Failed to send command, WebSocket not connected');
+        addOutput('Error: Terminal not connected. Please refresh the page.', 'error');
+      }
     }
     resetNavigation();
     updateCurrentLine('');
-  }, [addCommand, sendMessage, resetNavigation, updateCurrentLine]);
+  }, [addCommand, sendMessage, resetNavigation, updateCurrentLine, addOutput]);
 
   // History navigation handlers
   const handleHistoryUp = useCallback((currentCmd) => {
@@ -132,7 +160,7 @@ const Terminal = ({
 
   // Interrupt handler (Ctrl+C)
   const handleInterrupt = useCallback(() => {
-    sendMessage(JSON.stringify({ input: '\x03' })); // Send interrupt signal
+    sendMessage('\x03'); // Send interrupt signal
     updateCurrentLine('');
     resetNavigation();
   }, [sendMessage, updateCurrentLine, resetNavigation]);
