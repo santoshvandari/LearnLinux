@@ -49,12 +49,25 @@ const Terminal = ({
   // Handle WebSocket messages
   useEffect(() => {
     if (lastMessage) {
-      if (lastMessage.output) {
+      if (lastMessage.type === 'output' && lastMessage.data) {
+        // Process formatted output from backend
+        const output = lastMessage.data;
+        if (output && output.trim()) {
+          // Split by lines and add each line separately for better formatting
+          const lines = output.split('\n');
+          lines.forEach((line, index) => {
+            if (line || index < lines.length - 1) { // Include empty lines for spacing
+              addOutput(line, 'output');
+            }
+          });
+        }
+      } else if (lastMessage.output) {
+        // Legacy format support
         addOutput(lastMessage.output, 'output');
-      } else if (lastMessage.error) {
-        addOutput(`Error: ${lastMessage.error}`, 'error');
+      } else if (lastMessage.error || lastMessage.type === 'error') {
+        const errorMsg = lastMessage.error || lastMessage.data || 'Unknown error';
+        addOutput(`Error: ${errorMsg}`, 'error');
       }
-      // Remove echo handling - let the backend terminal handle echoing naturally
     }
   }, [lastMessage, addOutput]);
 
@@ -74,7 +87,8 @@ const Terminal = ({
   const handleCommand = useCallback((command) => {
     if (command.trim()) {
       addCommand(command);
-      sendMessage(command);
+      // Send command in the format expected by the backend
+      sendMessage(JSON.stringify({ input: command }));
     }
     resetNavigation();
     updateCurrentLine('');
@@ -118,7 +132,7 @@ const Terminal = ({
 
   // Interrupt handler (Ctrl+C)
   const handleInterrupt = useCallback(() => {
-    sendMessage('\x03'); // Send interrupt signal
+    sendMessage(JSON.stringify({ input: '\x03' })); // Send interrupt signal
     updateCurrentLine('');
     resetNavigation();
   }, [sendMessage, updateCurrentLine, resetNavigation]);

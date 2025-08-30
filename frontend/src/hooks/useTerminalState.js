@@ -177,12 +177,20 @@ const useTerminalState = () => {
   }, []);
 
   // Auto-scroll when new content is added and user is at bottom
+  // Use ref to avoid re-triggering effect on every scroll
+  const linesLengthRef = useRef(lines.length);
+  
   useEffect(() => {
-    if (isAtBottom && lines.length > 0) {
-      const timer = setTimeout(() => {
-        scrollToBottom();
-      }, 50);
-      return () => clearTimeout(timer);
+    // Only trigger scroll if lines actually changed
+    if (linesLengthRef.current !== lines.length) {
+      linesLengthRef.current = lines.length;
+      
+      if (isAtBottom && lines.length > 0) {
+        const timer = setTimeout(() => {
+          scrollToBottom();
+        }, 50);
+        return () => clearTimeout(timer);
+      }
     }
   }, [lines.length, isAtBottom, scrollToBottom]);
 

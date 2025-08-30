@@ -186,20 +186,34 @@ class TerminalConsumer(AsyncWebsocketConsumer):
                         if data:
                             buffer += data
                             
-                            # Process data immediately for better responsiveness
-                            if buffer:
+                            # Process buffer for complete lines
+                            while buffer:
                                 try:
                                     # Try to decode the entire buffer
                                     output = buffer.decode('utf-8', errors='replace')
+                                    
+                                    # Process output for better readability
                                     if output:
-                                        await self.send(text_data=json.dumps({"output": output}))
+                                        formatted_output = self.format_terminal_output(output)
+                                        if formatted_output.strip():  # Only send non-empty content
+                                            await self.send(text_data=json.dumps({"type": "output", "data": formatted_output}))
                                         buffer = b""
+                                        break
                                 except UnicodeDecodeError:
-                                    # If decoding fails, try with ignore errors
-                                    output = buffer.decode('utf-8', errors='ignore')
-                                    if output:
-                                        await self.send(text_data=json.dumps({"output": output}))
-                                        buffer = b""
+                                    # If we can't decode, try to find a valid UTF-8 sequence
+                                    for i in range(len(buffer) - 1, 0, -1):
+                                        try:
+                                            partial = buffer[:i].decode('utf-8')
+                                            formatted_output = self.format_terminal_output(partial)
+                                            if formatted_output.strip():
+                                                await self.send(text_data=json.dumps({"type": "output", "data": formatted_output}))
+                                            buffer = buffer[i:]
+                                            break
+                                        except UnicodeDecodeError:
+                                            continue
+                                    else:
+                                        # If no valid sequence found, skip one byte and try again
+                                        buffer = buffer[1:]
                         else:
                             # EOF reached
                             break
@@ -227,6 +241,44 @@ class TerminalConsumer(AsyncWebsocketConsumer):
                 break
         
         logger.info("Terminal output reader stopped")
+
+    def format_terminal_output(self, output):
+        """Format terminal output for better readability"""
+        if not output:
+            return output
+            
+        # Remove common terminal escape sequences that cause formatting issues
+        import re
+        
+        # Clean output while preserving ANSI color codes
+        formatted = output
+        
+        # Remove terminal title sequences
+        formatted = re.sub(r'\x1b\]0;[^\x07]*\x07', '', formatted)
+        
+        # Remove cursor positioning that might cause issues
+        formatted = re.sub(r'\x1b\[H', '', formatted)
+        formatted = re.sub(r'\x1b\[2J', '', formatted)
+        
+        # Clean up excessive whitespace but preserve intentional spacing
+        lines = formatted.split('\n')
+        cleaned_lines = []
+        
+        for line in lines:
+            # Remove trailing whitespace but preserve leading indentation
+            cleaned_line = line.rstrip()
+            
+            # Skip completely empty lines unless they provide spacing
+            if cleaned_line or (len(cleaned_lines) > 0 and cleaned_lines[-1].strip()):
+                cleaned_lines.append(cleaned_line)
+        
+        # Join lines back together
+        result = '\n'.join(cleaned_lines)
+        
+        # Remove duplicate newlines but preserve intentional paragraph breaks
+        result = re.sub(r'\n{3,}', '\n\n', result)
+        
+        return result
 
     async def receive(self, text_data=None, bytes_data=None):
         try:

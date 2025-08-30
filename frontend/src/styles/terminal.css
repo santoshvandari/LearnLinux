@@ -54,11 +54,78 @@
 
 .terminal-line {
   @apply whitespace-pre-wrap;
-  min-height: 1.2em;
-  font-family: 'Courier New', 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-  line-height: 1.2;
-  word-break: normal;
-  overflow-wrap: normal;
+  min-height: 1.6em;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  line-height: 1.6;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  padding: 2px 0;
+  margin: 0;
+}
+
+.terminal-line[data-line-type="output"] {
+  color: #e5e5e5;
+}
+
+.terminal-line[data-line-type="error"] {
+  color: #ff6b6b;
+  background-color: rgba(255, 107, 107, 0.1);
+  padding: 4px 8px;
+  border-left: 3px solid #ff6b6b;
+  border-radius: 2px;
+  font-weight: bold;
+}
+
+.terminal-line[data-line-type="input"] {
+  color: #ffffff;
+  background-color: rgba(0, 255, 0, 0.05);
+  padding: 2px 4px;
+  border-left: 2px solid #00ff00;
+}
+
+.terminal-line[data-line-type="prompt"] {
+  color: #00ff00;
+  font-weight: bold;
+}
+
+/* Enhanced text formatting classes */
+.terminal-header {
+  font-size: 16px;
+  font-weight: bold;
+  color: #00d4ff !important;
+  display: block;
+  margin-top: 12px;
+  margin-bottom: 8px;
+}
+
+.terminal-bullet {
+  color: #90ee90 !important;
+  margin-left: 16px;
+}
+
+.terminal-number {
+  color: #90ee90 !important;
+  margin-left: 16px;
+}
+
+/* Improved output formatting */
+.terminal-output-formatted {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.6;
+  font-size: 14px;
+}
+
+.terminal-output-formatted .section-break {
+  margin: 8px 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.terminal-output-formatted .indented {
+  padding-left: 20px;
+  border-left: 2px solid rgba(0, 255, 0, 0.3);
+  margin-left: 4px;
 }
 
 .terminal-prompt {
