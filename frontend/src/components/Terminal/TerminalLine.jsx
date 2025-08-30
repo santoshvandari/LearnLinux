@@ -1,6 +1,6 @@
-// Individual terminal line component
+// Enhanced terminal line component with improved ANSI parsing
 import React, { memo } from 'react';
-import { parseAnsi, ansiToCSS } from '../../utils/ansiParser';
+import { parseAnsi, segmentsToReactStyles } from '../../utils/ansiParser';
 import TerminalCursor from './TerminalCursor';
 
 const TerminalLine = memo(({ 
@@ -14,7 +14,7 @@ const TerminalLine = memo(({
 }) => {
   const renderContent = () => {
     if (!content && !isCurrentLine) {
-      return <span>&nbsp;</span>; // Preserve line height for empty lines
+      return <span style={{ height: '1.4em', display: 'inline-block' }}>&nbsp;</span>;
     }
 
     // For current input line, handle cursor positioning
@@ -24,69 +24,111 @@ const TerminalLine = memo(({
       const afterCursor = content.slice(cursorPosition + 1);
 
       return (
-        <>
-          {beforeCursor && <span>{beforeCursor}</span>}
+        <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+          {beforeCursor && (
+            <span style={{ color: '#00ff00', fontFamily: 'inherit' }}>
+              {beforeCursor}
+            </span>
+          )}
           {showCursor ? (
             <TerminalCursor character={atCursor} />
           ) : (
-            <span>{atCursor}</span>
+            <span style={{ color: '#00ff00' }}>{atCursor}</span>
           )}
-          {afterCursor && <span>{afterCursor}</span>}
-        </>
+          {afterCursor && (
+            <span style={{ color: '#00ff00', fontFamily: 'inherit' }}>
+              {afterCursor}
+            </span>
+          )}
+        </div>
       );
     }
 
-    // For output lines, preserve original formatting and parse ANSI sequences
-    const { segments } = parseAnsi(content);
+    // For output lines, parse ANSI sequences and apply proper styling
+    const segments = parseAnsi(content);
     
     if (segments.length === 0) {
-      return <span>&nbsp;</span>;
+      return <span style={{ height: '1.4em', display: 'inline-block' }}>&nbsp;</span>;
     }
 
-    return segments.map((segment, index) => {
-      const cssClasses = ansiToCSS(segment);
-      
-      // Preserve original text formatting
-      const text = segment.text || '';
-      // Don't modify the text - render it exactly as received
-      const preservedText = text;
-      
-      return (
-        <span 
-          key={index}
-          className={cssClasses}
-          style={{
-            color: segment.color ? undefined : 'inherit',
-            backgroundColor: segment.backgroundColor ? undefined : 'inherit',
-            whiteSpace: 'pre-wrap' // Preserve whitespace and allow wrapping
-          }}
-        >
-          {preservedText || '\u00A0'}
-        </span>
-      );
-    });
+    // Convert segments to React-compatible styles
+    const styledSegments = segmentsToReactStyles(segments);
+    
+    return (
+      <div style={{ 
+        display: 'flex', 
+        flexWrap: 'wrap',
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+        overflowWrap: 'break-word'
+      }}>
+        {styledSegments.map((segment, index) => {
+          // Handle special control sequences
+          if (segment.controls?.clearScreen) {
+            // This segment triggers a screen clear
+            return null;
+          }
+          
+          // Render text with proper styling
+          const text = segment.text || '';
+          
+          return (
+            <span 
+              key={index}
+              style={{
+                ...segment.reactStyle,
+                fontFamily: 'inherit',
+                fontSize: 'inherit',
+                lineHeight: 'inherit'
+              }}
+            >
+              {text || '\u00A0'}
+            </span>
+          );
+        })}
+      </div>
+    );
   };
 
-  const getLineTypeClass = () => {
+  const getLineStyles = () => {
+    const baseStyles = {
+      minHeight: '1.4em',
+      lineHeight: '1.4',
+      fontFamily: 'JetBrains Mono, Fira Code, Courier New, Monaco, Menlo, Ubuntu Mono, monospace',
+      fontSize: '14px',
+      margin: 0,
+      padding: 0,
+      whiteSpace: 'pre-wrap',
+      wordBreak: 'normal',
+      overflowWrap: 'normal'
+    };
+
     switch (type) {
       case 'prompt':
-        return 'terminal-prompt';
+        return {
+          ...baseStyles,
+          color: '#00ff00',
+          fontWeight: 'bold'
+        };
       case 'input':
-        return 'terminal-input-line';
+        return {
+          ...baseStyles,
+          color: '#ffffff'
+        };
       case 'error':
-        return 'terminal-error';
+        return {
+          ...baseStyles,
+          color: '#ff0000',
+          fontWeight: 'bold'
+        };
       case 'output':
       default:
-        return 'terminal-output-line';
+        return {
+          ...baseStyles,
+          color: '#e5e5e5'
+        };
     }
   };
-
-  const lineClasses = [
-    'terminal-line',
-    getLineTypeClass(),
-    isCurrentLine && 'terminal-current-line',
-    className
-  ].filter(Boolean).join(' ');
 
   const handleMouseDown = (event) => {
     if (onTextSelect) {
@@ -96,9 +138,10 @@ const TerminalLine = memo(({
 
   return (
     <div 
-      className={lineClasses}
+      style={getLineStyles()}
       onMouseDown={handleMouseDown}
       data-line-type={type}
+      className={className}
     >
       {renderContent()}
     </div>

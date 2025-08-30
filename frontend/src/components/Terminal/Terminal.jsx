@@ -51,27 +51,24 @@ const Terminal = ({
     if (lastMessage) {
       if (lastMessage.output) {
         addOutput(lastMessage.output, 'output');
-      } else if (lastMessage.echo) {
-        addOutput(lastMessage.echo, 'input');
       } else if (lastMessage.error) {
-        addOutput(lastMessage.error, 'error');
+        addOutput(`Error: ${lastMessage.error}`, 'error');
       }
+      // Remove echo handling - let the backend terminal handle echoing naturally
     }
   }, [lastMessage, addOutput]);
 
   // Handle connection status changes
   useEffect(() => {
     if (connectionStatus === 'connected') {
-      addOutput('Connected to terminal session', 'output');
-      addPrompt();
       if (onConnect) onConnect();
     } else if (connectionStatus === 'disconnected') {
-      addOutput('Disconnected from terminal session', 'error');
+      addOutput('Connection lost. Please refresh to reconnect.', 'error');
       if (onDisconnect) onDisconnect();
     } else if (connectionStatus === 'error') {
-      addOutput('Connection error - attempting to reconnect...', 'error');
+      addOutput('Connection error - check your network and try refreshing the page', 'error');
     }
-  }, [connectionStatus, addOutput, addPrompt, onConnect, onDisconnect]);
+  }, [connectionStatus, addOutput, onConnect, onDisconnect]);
 
   // Command execution handler
   const handleCommand = useCallback((command) => {

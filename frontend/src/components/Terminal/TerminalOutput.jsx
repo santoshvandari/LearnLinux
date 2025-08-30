@@ -1,4 +1,4 @@
-// Output display component
+// Enhanced output display component with better styling
 import React, { useRef, useEffect, useCallback } from 'react';
 import TerminalLine from './TerminalLine';
 
@@ -55,37 +55,67 @@ const TerminalOutput = ({
     }
   }, [onTextSelect]);
 
-  const outputClasses = [
-    'terminal-output',
-    className
-  ].filter(Boolean).join(' ');
+  const outputStyles = {
+    width: '100%',
+    height: '100%',
+    overflowY: 'auto',
+    padding: '16px',
+    backgroundColor: '#000000',
+    color: '#e5e5e5',
+    fontFamily: 'JetBrains Mono, Fira Code, Courier New, Monaco, Menlo, Ubuntu Mono, monospace',
+    fontSize: '14px',
+    lineHeight: '1.4',
+    scrollbarWidth: 'thin',
+    scrollbarColor: '#333 #000'
+  };
+
+  // Custom scrollbar styles for webkit browsers
+  const scrollbarStyles = `
+    .terminal-output-container::-webkit-scrollbar {
+      width: 8px;
+    }
+    .terminal-output-container::-webkit-scrollbar-track {
+      background: #000;
+    }
+    .terminal-output-container::-webkit-scrollbar-thumb {
+      background: #333;
+      border-radius: 4px;
+    }
+    .terminal-output-container::-webkit-scrollbar-thumb:hover {
+      background: #555;
+    }
+  `;
 
   return (
-    <div 
-      ref={outputRef}
-      className={outputClasses}
-      onScroll={handleScroll}
-    >
-      {/* Render all output lines */}
-      {lines.map((line) => (
+    <>
+      <style>{scrollbarStyles}</style>
+      <div 
+        ref={outputRef}
+        className={`terminal-output-container ${className}`}
+        style={outputStyles}
+        onScroll={handleScroll}
+      >
+        {/* Render all output lines */}
+        {lines.map((line) => (
+          <TerminalLine
+            key={line.id}
+            content={line.content}
+            type={line.type}
+            onTextSelect={handleTextSelect}
+          />
+        ))}
+        
+        {/* Render current input line with proper prompt */}
         <TerminalLine
-          key={line.id}
-          content={line.content}
-          type={line.type}
+          content={`$ ${currentLine}`}
+          type="input"
+          isCurrentLine={true}
+          cursorPosition={cursorPosition + 2} // +2 for "$ " prefix
+          showCursor={showCursor}
           onTextSelect={handleTextSelect}
         />
-      ))}
-      
-      {/* Render current input line */}
-      <TerminalLine
-        content={`$ ${currentLine}`}
-        type="input"
-        isCurrentLine={true}
-        cursorPosition={cursorPosition + 2} // +2 for "$ " prefix
-        showCursor={showCursor}
-        onTextSelect={handleTextSelect}
-      />
-    </div>
+      </div>
+    </>
   );
 };
 
