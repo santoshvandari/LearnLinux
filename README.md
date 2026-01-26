@@ -131,6 +131,8 @@ LearnLinux/
 │   ├── terminal/              # WebSocket consumer and terminal logic
 │   ├── Dockerfile             # Container configuration
 │   ├── docker-compose.yml     # Service orchestration
+│   ├── .env                   # Environment variables
+│   ├── manage.py              # Django management script
 │   └── requirements.txt       # Python dependencies
 ├── frontend/                  # React frontend
 │   ├── src/
@@ -140,15 +142,18 @@ LearnLinux/
 │   │   └── styles/           # CSS styling
 │   ├── package.json          # Node.js dependencies
 │   └── vite.config.js        # Vite configuration
-└── README.md                 # This file
+├── README.md                 # This file
+├── CONTRIBUTING.md           # Contributing guidelines
+├── CODE_OF_CONDUCT.md        # Code of Conduct
+├── LICENSE                   # License 
+
+
 ```
 
 ## Configuration
 
 ### Environment Variables
 ```bash
-# Backend (.env)
-DJANGO_DEVELOPMENT=False       # Set to True for development
 ALLOWED_HOSTS=localhost,127.0.0.1,your-domain.com
 
 # Frontend (.env)
@@ -189,22 +194,18 @@ awk '{print $1}' sample.log
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature-name`
-3. Commit changes: `git commit -am 'Add feature'`
-4. Push to branch: `git push origin feature-name`
-5. Submit a Pull Request
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details on:
+- How to submit bug reports
+- How to suggest new features
+- Code style guidelines
+- Pull request process
+
+## Code of Conduct
+Please read our [Code of Conduct](CODE_OF_CONDUCT.md) to understand the expected behavior in our community. We strive to create a welcoming and inclusive environment for all contributors.
 
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Acknowledgments
-
-- Built with modern web technologies for optimal learning experience
-- Inspired by the need for safe Linux command practice environments
-- Designed with security and education as top priorities
-
----
 
 **⚠️ Note**: This is an educational platform. While designed with security best practices, always run in isolated environments for production deployments.

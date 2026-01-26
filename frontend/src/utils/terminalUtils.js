@@ -23,25 +23,25 @@ export const validateCommand = (command) => {
   if (!command || typeof command !== 'string') {
     return false;
   }
-  
+
   // Check length limits
   if (command.length === 0 || command.length > 10000) {
     return false;
   }
-  
+
   // Allow most characters but prevent some dangerous patterns
   // This is basic validation - the backend should do proper security checks
   const dangerousPatterns = [
     /\x00/g, // Null bytes
     /[\x01-\x08\x0B\x0C\x0E-\x1F\x7F]/g // Other control characters except \t, \n, \r
   ];
-  
+
   for (const pattern of dangerousPatterns) {
     if (pattern.test(command)) {
       return false;
     }
   }
-  
+
   return true;
 };
 
@@ -52,7 +52,7 @@ export const sanitizeInput = (input) => {
   if (!input || typeof input !== 'string') {
     return '';
   }
-  
+
   // Remove or replace dangerous characters
   return input
     .replace(/\x00/g, '') // Remove null bytes
@@ -68,10 +68,10 @@ export const calculateTerminalDimensions = (containerWidth, containerHeight, fon
   // Approximate character dimensions for monospace fonts
   const charWidth = fontSize * 0.6; // Rough estimate
   const lineHeight = fontSize * 1.2;
-  
+
   const cols = Math.floor(containerWidth / charWidth);
   const rows = Math.floor(containerHeight / lineHeight);
-  
+
   return {
     cols: Math.max(20, cols), // Minimum 20 columns
     rows: Math.max(5, rows)   // Minimum 5 rows
@@ -112,11 +112,11 @@ export const throttle = (func, limit) => {
  */
 export const formatFileSize = (bytes) => {
   if (bytes === 0) return '0 B';
-  
+
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  
+
   return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
@@ -124,7 +124,7 @@ export const formatFileSize = (bytes) => {
  * Format timestamp for terminal display
  */
 export const formatTimestamp = (date = new Date()) => {
-  return date.toLocaleTimeString('en-US', { 
+  return date.toLocaleTimeString('en-US', {
     hour12: false,
     hour: '2-digit',
     minute: '2-digit',
@@ -157,7 +157,7 @@ export const scrollToBottom = (element) => {
  */
 export const isScrolledToBottom = (element, threshold = 10) => {
   if (!element) return true;
-  
+
   const { scrollTop, scrollHeight, clientHeight } = element;
   return scrollTop + clientHeight >= scrollHeight - threshold;
 };

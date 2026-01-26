@@ -4,13 +4,13 @@ A modern, interactive web-based Linux terminal for learning command-line skills.
 
 ## Features
 
-### 🎨 Awesome UI Design
+### Awesome UI Design
 - **Landing Page**: Beautiful gradient background with animated particles and typing effects
 - **Interactive Terminal**: Real terminal experience with proper ANSI color support
 - **Responsive Design**: Works on desktop and mobile devices
 - **Modern Animations**: Smooth transitions and hover effects
 
-### 🖥️ Terminal Features
+### Terminal Features
 - **Real-time Command Execution**: Execute actual Linux commands
 - **ANSI Color Support**: Full support for terminal colors and formatting
 - **Command History**: Navigate through previous commands with arrow keys
@@ -18,7 +18,7 @@ A modern, interactive web-based Linux terminal for learning command-line skills.
 - **Resizable Interface**: Minimize, maximize, and close terminal window
 - **Connection Status**: Visual indicators for WebSocket connection
 
-### 🚀 Getting Started
+### Getting Started
 
 1. Install dependencies:
 ```bash
@@ -32,7 +32,7 @@ npm run dev
 
 3. Open your browser and navigate to the local server URL
 
-### 🎯 How to Use
+### How to Use
 
 1. **Landing Page**: Click "Start Learning" to open the terminal
 2. **Terminal Interface**: 
@@ -42,7 +42,7 @@ npm run dev
    - Use Ctrl+L to clear the screen
    - Click window controls to minimize/maximize/close
 
-### 🛠️ Technical Stack
+### Technical Stack
 
 - **React 19**: Modern React with hooks
 - **Vite**: Fast build tool and dev server
@@ -50,7 +50,7 @@ npm run dev
 - **Heroicons**: Beautiful SVG icons
 - **WebSocket**: Real-time communication with backend
 
-### 📁 Project Structure
+### Project Structure
 
 ```
 src/
@@ -80,7 +80,7 @@ src/
     └── terminal.css            # Terminal-specific styles
 ```
 
-### 🎨 Design Features
+### Design Features
 
 - **Gradient Backgrounds**: Beautiful color gradients
 - **Particle Effects**: Animated background elements
@@ -89,7 +89,7 @@ src/
 - **Dark Theme**: Easy on the eyes terminal interface
 - **Smooth Animations**: CSS transitions and transforms
 
-### 🔧 Customization
+### Customization
 
 The UI is highly customizable through:
 - **Tailwind CSS**: Modify colors, spacing, and layout

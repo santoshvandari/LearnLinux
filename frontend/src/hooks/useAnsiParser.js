@@ -1,4 +1,3 @@
-// ANSI escape sequence parsing hook
 import { useMemo, useCallback } from 'react';
 import { 
   parseAnsi, 
