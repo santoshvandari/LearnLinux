@@ -1,8 +1,8 @@
-import React, { useState } from 'react'
-import './App.css'
-import LandingPage from './components/Landing/LandingPage'
-import TerminalContainer from './components/Terminal/TerminalContainer'
-import ErrorBoundary from './components/UI/ErrorBoundary'
+import React, {useState} from "react";
+import "./App.css";
+import LandingPage from "./components/Landing/LandingPage";
+import TerminalContainer from "./components/Terminal/TerminalContainer";
+import ErrorBoundary from "./components/UI/ErrorBoundary";
 
 function App() {
   const [showTerminal, setShowTerminal] = useState(false);
@@ -28,18 +28,21 @@ function App() {
 
   const handleError = (error, errorInfo) => {
     // Log to external service if needed
-    console.error('App Error:', error, errorInfo);
+    console.error("App Error:", error, errorInfo);
   };
 
   return (
     <div className="w-full min-h-screen bg-black">
-      <ErrorBoundary onError={handleError} showDetails={process.env.NODE_ENV === 'development'}>
+      <ErrorBoundary
+        onError={handleError}
+        showDetails={import.meta.env.VITE_APP_ENV === "development"}
+      >
         {!showTerminal ? (
           <LandingPage onStartTerminal={handleStartTerminal} />
         ) : (
           <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-800 p-4 flex items-center justify-center">
             {!isMinimized ? (
-              <TerminalContainer 
+              <TerminalContainer
                 onClose={handleCloseTerminal}
                 onMinimize={handleMinimizeTerminal}
               />
@@ -58,7 +61,7 @@ function App() {
         )}
       </ErrorBoundary>
     </div>
-  )
+  );
 }
 
-export default App
+export default App;

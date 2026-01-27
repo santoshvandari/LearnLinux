@@ -1,7 +1,7 @@
 // Enhanced ANSI escape sequence parser with improved text formatting
 export function parseAnsi(text) {
   if (!text || typeof text !== 'string') return [];
-  
+
   // Clean up common terminal artifacts that cause display issues
   let cleanText = text
     // Remove bell character
@@ -24,7 +24,7 @@ export function parseAnsi(text) {
     .replace(/\r/g, '\n')
     // Remove excessive newlines but preserve paragraph breaks
     .replace(/\n{4,}/g, '\n\n');
-  
+
   const segments = [];
   let currentIndex = 0;
   let currentState = {
@@ -83,12 +83,12 @@ function processAnsiSequence(sequence, state) {
     // Clear line - ignore for our purposes
     return;
   }
-  
+
   if (sequence === 'H' || sequence === 'f') {
     // Cursor positioning - ignore for our purposes
     return;
   }
-  
+
   if (sequence === '2J') {
     // Clear screen - we'll handle this separately
     state.clearScreen = true;
@@ -97,7 +97,7 @@ function processAnsiSequence(sequence, state) {
 
   // Handle SGR (Select Graphic Rendition) parameters
   const params = sequence.replace(/[^\d;]/g, '').split(';').map(p => parseInt(p) || 0);
-  
+
   for (const param of params) {
     switch (param) {
       case 0: // Reset
@@ -191,45 +191,45 @@ function processAnsiSequence(sequence, state) {
 export function segmentsToReactStyles(segments) {
   return segments.map(segment => {
     const reactStyle = {};
-    
+
     if (segment.ansiState) {
       if (segment.ansiState.color) {
         reactStyle.color = segment.ansiState.color;
       }
-      
+
       if (segment.ansiState.backgroundColor) {
         reactStyle.backgroundColor = segment.ansiState.backgroundColor;
       }
-      
+
       if (segment.ansiState.bold) {
         reactStyle.fontWeight = 'bold';
       }
-      
+
       if (segment.ansiState.italic) {
         reactStyle.fontStyle = 'italic';
       }
-      
+
       if (segment.ansiState.underline) {
-        reactStyle.textDecoration = reactStyle.textDecoration ? 
+        reactStyle.textDecoration = reactStyle.textDecoration ?
           `${reactStyle.textDecoration} underline` : 'underline';
       }
-      
+
       if (segment.ansiState.strikethrough) {
-        reactStyle.textDecoration = reactStyle.textDecoration ? 
+        reactStyle.textDecoration = reactStyle.textDecoration ?
           `${reactStyle.textDecoration} line-through` : 'line-through';
       }
-      
+
       if (segment.ansiState.dim) {
         reactStyle.opacity = 0.7;
       }
-      
+
       if (segment.ansiState.reverse) {
         // Swap foreground and background colors
         const tempColor = reactStyle.color;
         reactStyle.color = reactStyle.backgroundColor || '#000000';
         reactStyle.backgroundColor = tempColor || '#ffffff';
       }
-      
+
       // Handle special control flags
       if (segment.ansiState.clearScreen) {
         return {
@@ -239,7 +239,7 @@ export function segmentsToReactStyles(segments) {
         };
       }
     }
-    
+
     return {
       ...segment,
       reactStyle
@@ -250,7 +250,7 @@ export function segmentsToReactStyles(segments) {
 // Utility function to strip ANSI escape sequences from text
 export function stripAnsi(text) {
   if (!text || typeof text !== 'string') return text;
-  
+
   // Remove all ANSI escape sequences and terminal control codes
   return text
     // Remove ANSI escape sequences

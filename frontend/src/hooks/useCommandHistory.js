@@ -1,4 +1,3 @@
-// Command history functionality hook
 import { useState, useCallback } from 'react';
 import { MAX_HISTORY_SIZE } from '../utils/constants';
 

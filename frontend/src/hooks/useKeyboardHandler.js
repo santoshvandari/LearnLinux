@@ -1,11 +1,10 @@
-// Keyboard input handling hook
 import { useCallback } from 'react';
 
-const useKeyboardHandler = ({ 
-  onCommand, 
-  onCursorMove, 
-  onTextInput, 
-  onHistoryUp, 
+const useKeyboardHandler = ({
+  onCommand,
+  onCursorMove,
+  onTextInput,
+  onHistoryUp,
   onHistoryDown,
   onClearScreen,
   onInterrupt,
@@ -14,9 +13,9 @@ const useKeyboardHandler = ({
   hasSelection,
   onCopy
 }) => {
-  
+
   const handleKeyDown = useCallback((event) => {
-    const { key, ctrlKey, metaKey, shiftKey } = event;
+    const { key, ctrlKey, metaKey } = event;
     const isCtrlOrCmd = ctrlKey || metaKey;
 
     // Handle special key combinations first
@@ -132,10 +131,10 @@ const useKeyboardHandler = ({
         break;
     }
   }, [
-    onCommand, 
-    onCursorMove, 
-    onTextInput, 
-    onHistoryUp, 
+    onCommand,
+    onCursorMove,
+    onTextInput,
+    onHistoryUp,
     onHistoryDown,
     onClearScreen,
     onInterrupt,
@@ -153,10 +152,10 @@ const useKeyboardHandler = ({
 
   const handlePaste = useCallback(async (event) => {
     event.preventDefault();
-    
+
     try {
       let pastedText = '';
-      
+
       if (event.clipboardData) {
         // Standard paste event
         pastedText = event.clipboardData.getData('text/plain');
@@ -170,7 +169,7 @@ const useKeyboardHandler = ({
         const cleanText = pastedText
           .replace(/[\r\n]/g, ' ')
           .replace(/[\x00-\x1F\x7F]/g, ''); // Remove control characters
-        
+
         if (cleanText) {
           onTextInput(cleanText);
         }
@@ -197,7 +196,7 @@ const useKeyboardHandler = ({
         document.body.appendChild(textArea);
         textArea.focus();
         textArea.select();
-        
+
         const result = document.execCommand('copy');
         document.body.removeChild(textArea);
         return result;

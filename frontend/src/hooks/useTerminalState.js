@@ -1,4 +1,3 @@
-// Enhanced terminal state management hook with better ANSI handling
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { MAX_OUTPUT_LINES } from '../utils/constants';
 import { parseAnsi, stripAnsi } from '../utils/ansiParser';

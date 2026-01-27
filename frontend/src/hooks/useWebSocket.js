@@ -1,4 +1,3 @@
-// WebSocket connection management hook
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { RECONNECT_INTERVAL, MAX_RECONNECT_ATTEMPTS } from '../utils/constants';
 

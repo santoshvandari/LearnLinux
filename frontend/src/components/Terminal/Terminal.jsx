@@ -25,7 +25,7 @@ const Terminal = ({
   const lastProcessedMessageRef = useRef(null);
 
   // Initialize hooks
-  const { connectionStatus, sendMessage, lastMessage, reconnect } = useWebSocket(WEBSOCKET_URL, sessionId);
+  const { connectionStatus, sendMessage, lastMessage } = useWebSocket(WEBSOCKET_URL, sessionId);
   
   const {
     lines,
@@ -216,31 +216,7 @@ const Terminal = ({
   }, []);
 
   // Connection status indicator
-  const getConnectionStatusClass = () => {
-    switch (connectionStatus) {
-      case 'connected':
-        return 'connection-status connected';
-      case 'connecting':
-        return 'connection-status connecting';
-      case 'error':
-        return 'connection-status error';
-      default:
-        return 'connection-status disconnected';
-    }
-  };
 
-  const getConnectionStatusText = () => {
-    switch (connectionStatus) {
-      case 'connected':
-        return 'Connected';
-      case 'connecting':
-        return 'Connecting...';
-      case 'error':
-        return 'Connection Error';
-      default:
-        return 'Disconnected';
-    }
-  };
 
   const terminalClasses = [
     'terminal-container',
@@ -262,17 +238,7 @@ const Terminal = ({
       }}
     >
       {/* Connection status indicator */}
-      <div className={getConnectionStatusClass()}>
-        {getConnectionStatusText()}
-        {connectionStatus === 'error' && (
-          <button 
-            onClick={reconnect}
-            className="ml-2 px-2 py-1 bg-red-600 hover:bg-red-500 text-white text-xs rounded"
-          >
-            Retry
-          </button>
-        )}
-      </div>
+
 
       {/* Terminal output */}
       <TerminalOutput
